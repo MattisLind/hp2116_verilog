@@ -89,6 +89,58 @@ module hp2116_cpu #(
 
   tstate_t tstate;
 
+
+// Kodkommentar: HP12531C teleprinter interface
+hp12531c serial (
+  .clk(clk),
+  .rst_n(rst_n),
+
+  .prl(prl),
+  .flgl(flgl),
+  .sfc(sfc),
+  .irql(irql),
+  .clf(clf),
+  .ien(ien),
+  .stf(stf),
+  .iak(iak),
+  .t3(t3),
+  .skf(skf),
+  .crs(crs),
+
+  .scm_l(scm_l),
+  .scl_l(scl_l),
+
+  .iog(iog),
+  .popio(popio),
+
+  .iob16_or_bios_n(iob16_or_bios_n),
+
+  .srq(srq),
+  .ioo(ioo),
+  .clc(clc),
+  .stc(stc),
+  .prh(prh),
+  .ioi(ioi),
+  .sfs(sfs),
+
+  .irqh(irqh),
+  .scl_h(scl_h),
+  .scm_h(scm_h),
+
+  .iob_out(iob_out),
+  .iob_in(iob_in),
+
+  .sir(sir),
+  .enf(enf),
+  .flgh(flgh),
+
+  .run(run),
+
+  .edt(edt),
+  .pon(pon),
+  .bioo_n(bioo_n),
+  .sfsb_or_bioi_n(sfsb_or_bioi_n)
+);
   //--------------------------------------------------------------------------
   // Helper: next T-state
   //--------------------------------------------------------------------------
