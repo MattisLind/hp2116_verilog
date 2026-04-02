@@ -67,10 +67,10 @@ module tb_hp12531c;
 
 
   // Kodkommentar: Separata UART-signaler för hostif-test.
-  logic hostif_serial_in;
-  logic hostif_serial_out;
+  //logic hostif_serial_in;
+  //logic hostif_serial_out;
 
-  hostif #(
+  /*hostif #(
     .CLOCK_HZ(CLOCK_HZ),
     .BAUD(BAUD),
     .STOP_BITS(STOP_BITS)
@@ -79,7 +79,7 @@ module tb_hp12531c;
     .crs(crs),
     .serial_in(hostif_serial_in),
     .serial_out(hostif_serial_out)
-  );
+  );*/
 
 
   // Kodkommentar: Driv 'run' bara när enable är aktiv, annars högimpedans.
@@ -156,7 +156,7 @@ module tb_hp12531c;
 
     // Kodkommentar: Skicka en UART-byte till hostif via hostif_serial_out.
   // Format: 1 startbit, 8 databitar, STOP_BITS stoppbitar, ingen paritet.
-  task automatic uart_send_byte(input logic [7:0] data);
+  task automatic uart_send_byte(input logic [7:0] data, ref logic output_signal);
     time bit_time;
     int i;
     begin
@@ -164,22 +164,22 @@ module tb_hp12531c;
       bit_time = 1_000_000_000ns / BAUD;
 
       // Kodkommentar: Idle-nivån för UART är hög.
-      hostif_serial_out = 1'b1;
+      output_signal = 1'b1;
       #(bit_time);
 
       // Kodkommentar: Startbit.
-      hostif_serial_out = 1'b0;
+      output_signal = 1'b0;
       #(bit_time);
 
       // Kodkommentar: Skicka databitar LSB först.
       for (i = 0; i < 8; i++) begin
-        hostif_serial_out = data[i];
+        output_signal = data[i];
         #(bit_time);
       end
 
       // Kodkommentar: Skicka stoppbitar.
       repeat (STOP_BITS) begin
-        hostif_serial_out = 1'b1;
+        output_signal = 1'b1;
         #(bit_time);
       end
     end
@@ -190,13 +190,13 @@ module tb_hp12531c;
   task automatic init_signals();
     begin
       crs               = 1'b0;
-      hostif_serial_out  = 1'b1;
+      //hostif_serial_out  = 1'b1;
       sfc               = 1'b0;
       clf               = 1'b0;
       ien               = 1'b0;
       stf               = 1'b0;
       iak               = 1'b0;
-      t3                = 1'b0;
+      //t3                = 1'b0;
 
       scm_l             = 1'b0;
       scl_l             = 1'b0;
@@ -219,8 +219,8 @@ module tb_hp12531c;
 
       iob_out           = 16'h0000;
 
-      sir               = 1'b0;
-      enf               = 1'b0;
+      //sir               = 1'b0;
+      //enf               = 1'b0;
       pon               = 1'b0;
       bioo_n            = 1'b1;
       sfsb_or_bioi_n    = 1'b1;
@@ -292,10 +292,10 @@ endtask
     repeat (10) @(posedge clk);
 
     // Kodkommentar: Skicka ASCII 'A' till hostif så att den skrivs ut via DPI-C.
-    uart_send_byte(8'h41);
+    //uart_send_byte(8'h41, hostif_serial_out);
 
     // Kodkommentar: Vänta lite så att hostif hinner ta emot klart innan simuleringen avslutas.
-    repeat (100) @(posedge clk);
+    //repeat (100) @(posedge clk);
 
     // Kodkommentar: Exempel på några styrpulser.
     //pulse_1clk(clf);
@@ -304,7 +304,6 @@ endtask
     //pulse_1clk(clc);
 
     // Kodkommentar: Exempel på bussdata in till DUT.
-    iob_out = 16'o110000;
     @(posedge clk);
 
     // Kodkommentar: Exempel på att välja nedre select code.
@@ -313,8 +312,12 @@ endtask
     pulse_a_signal(clf);
     pulse_a_signal(stc);
 
-    repeat (100) @(posedge clk);
-
+    repeat (460) @(posedge clk);
+    //pulse_1clk(sir);
+    repeat (20) @(posedge clk);
+    output_on_bus(16'o140000);
+    pulse_a_signal(clf);
+    pulse_a_signal(stc);    
     // Kodkommentar: Exempel på att driva inout-signalen 'run' från testbänken.
     //run_drv_en  = 1'b1;
     //run_drv_val = 1'b1;
@@ -325,10 +328,39 @@ endtask
     repeat (20) @(posedge clk);
 
 
-    repeat (1000) @(posedge clk);
+    repeat (2000) @(posedge clk);
     $finish;
   end
 
+
+// This block runs forever, independent of others
+initial begin
+    // Kodkommentar: Definierade startvärden för automatiska styrsignaler.
+    sir = 1'b0;
+    t3  = 1'b0;
+    enf = 1'b0;
+
+    // Kodkommentar: Vänta tills reset och första programmeringen är klar.
+    @(negedge crs);
+    repeat (2) @(posedge clk);
+
+    forever begin
+        repeat (2) @(posedge clk);
+        enf = 1'b1;
+        @(posedge clk);
+        enf = 1'b0;
+
+        repeat (2) @(posedge clk);
+        t3 = 1'b1;
+        @(posedge clk);
+        t3 = 1'b0;
+
+        repeat (4) @(posedge clk);
+        sir = 1'b1;
+        @(posedge clk);
+        sir = 1'b0;
+    end
+end
   // Kodkommentar: Valfri monitor för snabb felsökning.
   // initial begin
   //  $display("Time      clk crs pon stf clf stc clc | prl flgl irql skf srq flgh edt run iob_in");

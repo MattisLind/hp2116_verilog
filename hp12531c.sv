@@ -189,7 +189,7 @@ module hp12531c #(
   always_ff @(posedge clk or posedge crs) begin
     if (crs) begin
       flag_ff       <= 1'b0;
-      flag_buffer_ff <= 1'b0;
+      flag_buffer_ff <= 1'b1;
       irq_ff        <= 1'b0;
       control_ff    <= 1'b0;
       inout_ff      <= 1'b1;
@@ -207,8 +207,8 @@ module hp12531c #(
         // Simple flip-flop controls
         //--------------------------------------------------------------------
         // flag buffer flip/flop
-        if (do_clf | popio | (iak & irq_ff)) flag_buffer_ff <= 1'b0;
-        else if (do_stf) flag_buffer_ff <= 1'b1;
+        if (do_clf |  (iak & irq_ff)) flag_buffer_ff <= 1'b0;
+        else if (popio | do_stf | (~counter_reset_ff & sir)) flag_buffer_ff <= 1'b1;
 
         // flag flip/flop
         if (flag_buffer_ff & enf) flag_ff <= 1'b1;
