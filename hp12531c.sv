@@ -2,11 +2,11 @@
 
 module hp12531c #(
   parameter int unsigned CLOCK_HZ  = 50_000_000,
-  parameter int unsigned BAUD      = 110,
+  parameter int unsigned BAUD      = 1_250_000,
   parameter int unsigned STOP_BITS = 2
 ) (
   input  logic         clk,
-  input  logic         rst_n,
+  input  logic         crs,
 
   // Kodkommentar: Prioritets- och flaggkedja mot bakplanet.
   output logic         prl,
@@ -19,7 +19,6 @@ module hp12531c #(
   input  logic         iak,
   input  logic         t3,
   output logic         skf,
-  input  logic         crs,
 
   // Kodkommentar: Select code för nedre adresshalvan. 12531C använder dessa.
   input  logic         scm_l,
@@ -44,8 +43,8 @@ module hp12531c #(
   input  logic         scl_h,
   input  logic         scm_h,
 
-  output logic [15:0]  iob_out,
-  input  logic [15:0]  iob_in,
+  input  logic [15:0]  iob_out,
+  output logic [15:0]  iob_in,
 
   input  logic         sir,
   input  logic         enf,
@@ -72,6 +71,44 @@ module hp12531c #(
   logic do_sfs;
   logic do_sfc;
 
+  //--------------------------------------------------------------------------
+  // Internal state
+  //--------------------------------------------------------------------------
+  logic        flag_ff;
+  logic        flag_buffer_ff;
+  logic        control_ff;
+  logic        inout_ff;      
+  logic        print_ff;
+  logic        punch_ff;
+  logic        irq_ff;
+  logic        clock_enable_ff;
+  logic        counter_reset_ff;
+  logic        read_ff;
+  logic        serial_in_or_flag;
+  logic [12:0] baudrategen;
+  logic A, B, C, D, E, F, G;
+  logic        serial_in;
+  logic        serial_out;
+
+  logic [6:0]   phase_cnt;
+  logic [10:0]  shift_reg;
+  logic in_phase_hit;
+  logic out_phase_hit;  
+  logic stop_condition;  
+  logic  shift_enable;
+  logic baudrategen_clock_enable;
+
+   hostif #(
+    .CLOCK_HZ(CLOCK_HZ),
+    .BAUD(BAUD),
+    .STOP_BITS(STOP_BITS)
+  ) dut (
+    .clk(clk),
+    .crs(crs),
+    .serial_in(serial_in),
+    .serial_out(serial_out)
+  );
+
   always_comb begin
     // Kodkommentar: 12531C använder endast nedre select code.
     sel_l  = iog && scm_l && scl_l;
@@ -86,340 +123,170 @@ module hp12531c #(
     do_sfc = sel_l && sfc;
   end
 
-  //--------------------------------------------------------------------------
-  // Internal state
-  //--------------------------------------------------------------------------
-  logic        flag_ff;
-  logic        control_ff;
-  logic        inout_ff;      // Kodkommentar: 1=input, 0=output.
-  logic        print_ff;
-  logic        punch_ff;
-
-  // Kodkommentar: Delat dataregister för både input och output.
-  logic [7:0]  data_reg;
-
-  // Kodkommentar: Håller senaste kontrollord för debug/vidare utbyggnad.
-  logic [15:0] control_word;
-
-  //--------------------------------------------------------------------------
-  // Simplified teleprinter-side state
-  //--------------------------------------------------------------------------
-  logic        tx_active;
-  logic        rx_active;
-  logic        rx_armed;
-
-  logic [10:0] tx_shift_reg;
-  logic [3:0]  tx_bits_left;
-  logic [31:0] tx_baud_cnt;
-
-  logic [7:0]  rx_shift_reg;
-  logic [2:0]  rx_bit_index;
-  logic [31:0] rx_baud_cnt;
-  logic [1:0]  rx_stop_count;
-
-  // Kodkommentar: Förenklad seriell linje internt. I denna första version
-  // finns ingen separat yttre teleprinterport på modulgränssnittet.
-  logic        teleprinter_rx;
-  logic        teleprinter_tx;
-
-  //--------------------------------------------------------------------------
-  // Baud timing
-  //--------------------------------------------------------------------------
-  localparam int unsigned BAUD_DIV      = (BAUD > 0) ? (CLOCK_HZ / BAUD) : 1;
-  localparam int unsigned HALF_BAUD_DIV = (BAUD_DIV > 1) ? (BAUD_DIV / 2) : 1;
-
-  //--------------------------------------------------------------------------
-  // Helper wires
-  //--------------------------------------------------------------------------
-  logic irq_pending;
-  logic skip_true;
-
-  always_comb begin
-    // Kodkommentar: Enheten begär interrupt när både control och flag är satta
-    // och CPU:n har interrupt enable aktiv.
-    irq_pending = control_ff && flag_ff && ien;
-
-    // Kodkommentar: Skip om SFS och flag=1, eller SFC och flag=0.
-    skip_true = (do_sfs && flag_ff) || (do_sfc && !flag_ff);
-  end
 
   //--------------------------------------------------------------------------
   // Backplane outputs
   //--------------------------------------------------------------------------
   always_comb begin
     // Kodkommentar: I denna första modell driver vi bara lägre flagglinje.
-    flgl = flag_ff;
+    flgl = irq_ff;
     flgh = 1'b0;
 
     // Kodkommentar: Skip-ledningen drivs endast när kortet är valt.
-    skf  = skip_true;
+    skf  = (do_sfs && flag_ff) || (do_sfc && !flag_ff);
 
     // Kodkommentar: Service request / interrupt request från kortet.
-    srq  = irq_pending;
-    irql = irq_pending;
+    srq  = flag_ff;
+    irql = irq_ff;
 
-    // Kodkommentar: PRL lämnas tills vidare som enkel vidarekoppling av PRH.
-    // Detta är en förenkling som kan göras mer trogen senare.
-    prl  = prh;
+    prl  = prh & ~(flag_ff & ien & control_ff);
+
+
 
     // Kodkommentar: EDT används inte i denna modell.
     edt  = 1'b0;
+
+    serial_in_or_flag = serial_in  | flag_ff;
+
   end
 
-  //--------------------------------------------------------------------------
-  // Bus readback
-  //
-  // Kodkommentar: Vid IOI återlämnas ett 16-bitars ord där lågbyte är
-  // dataregistret och några statusbitar läggs i övre delen.
-  //
-  // bit 15 = 0 (för att skilja från kontrollord vid skrivning)
-  // bit 14 = inout_ff
-  // bit 13 = print_ff
-  // bit 12 = punch_ff
-  // bit 11 = control_ff
-  // bit 10 = flag_ff
-  // bit  9 = irq_pending
-  // bit  7:0 = data_reg
-  //--------------------------------------------------------------------------
-  always_comb begin
-    iob_out = 16'h0000;
+    // Koppla ut de gamla stegnamnen till den synkrona räknaren
+    assign A = phase_cnt[0];
+    assign B = phase_cnt[1];
+    assign C = phase_cnt[2];
+    assign D = phase_cnt[3];
+    assign E = phase_cnt[4];
+    assign F = phase_cnt[5];
+    assign G = phase_cnt[6];
 
-    if (do_ioi) begin
-      iob_out[15]   = 1'b0;
-      iob_out[14]   = inout_ff;
-      iob_out[13]   = print_ff;
-      iob_out[12]   = punch_ff;
-      iob_out[11]   = control_ff;
-      iob_out[10]   = flag_ff;
-      iob_out[9]    = irq_pending;
-      iob_out[7:0]  = data_reg;
-    end
-  end
 
-  //--------------------------------------------------------------------------
-  // Helper tasks
-  //--------------------------------------------------------------------------
-  task automatic start_tx();
-    int i;
-    begin
-      // Kodkommentar: Dataregistret sänds seriellt med 1 startbit, 8 databitar
-      // och STOP_BITS stopbitar. LSB sänds först.
-      tx_shift_reg = '0;
-      tx_shift_reg[0] = 1'b0;
+    // IN-klockan kommer från Q på steg C.
+    // Det motsvarar en puls när C går 0->1.
+    // I en synkron räknare händer det när de gamla lägsta tre bitarna är 011.
+    assign in_phase_hit = (phase_cnt[2:0] == 3'b011);
 
-      for (i = 0; i < 8; i++) begin
-        tx_shift_reg[i+1] = data_reg[i];
-      end
+    // OUT-klockan kommer från /Q på steg C.
+    // Det motsvarar en puls när /C går 0->1, alltså när C går 1->0.
+    // I en synkron räknare händer det när de gamla lägsta tre bitarna är 111.
+    assign out_phase_hit = (phase_cnt[2:0] == 3'b111);
 
-      for (i = 0; i < STOP_BITS; i++) begin
-        tx_shift_reg[9+i] = 1'b1;
-      end
+    // Stoppvillkor från gamla logiken: när D, E och G är sanna ska kedjan resetas.
+    // I den synkrona versionen stoppar vi sekvensen och återställer fasräknaren.
+    assign stop_condition = D && E && G;
 
-      tx_bits_left = 4'(1 + 8 + STOP_BITS);
-      tx_baud_cnt  = BAUD_DIV - 1;
-      tx_active    = 1'b1;
-      rx_active    = 1'b0;
-      rx_armed     = 1'b0;
+    assign shift_enable = ((inout_ff && in_phase_hit) || (~inout_ff && out_phase_hit));
 
-      // Kodkommentar: Startad överföring nollställer flaggan.
-      flag_ff      <= 1'b0;
-    end
-  endtask
+    assign iob_in[7:0] = shift_reg[8:1];
+    assign iob_in[14:8] = 7'h00;
+    assign iob_in[15] = clock_enable_ff;
+    assign baudrategen_clock_enable = (baudrategen == 13'd4);
 
-  task automatic arm_rx();
-    begin
-      // Kodkommentar: Input-operationen gör kortet mottagningsberett.
-      rx_armed      <= 1'b1;
-      rx_active     <= 1'b0;
-      tx_active     <= 1'b0;
-
-      rx_shift_reg  <= 8'h00;
-      rx_bit_index  <= 3'd0;
-      rx_baud_cnt   <= 32'd0;
-      rx_stop_count <= 2'd0;
-
-      // Kodkommentar: Startad input-operation nollställer flaggan.
-      flag_ff       <= 1'b0;
-    end
-  endtask
+    assign serial_out = ~ ((~shift_reg[0] & ~inout_ff & (print_ff | punch_ff)) | (~serial_in_or_flag & (print_ff | punch_ff) & inout_ff));
 
   //--------------------------------------------------------------------------
   // Main sequential logic
   //--------------------------------------------------------------------------
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
+  always_ff @(posedge clk or posedge crs) begin
+    if (crs) begin
       flag_ff       <= 1'b0;
+      flag_buffer_ff <= 1'b0;
+      irq_ff        <= 1'b0;
       control_ff    <= 1'b0;
-      inout_ff      <= 1'b0;
+      inout_ff      <= 1'b1;
       print_ff      <= 1'b0;
       punch_ff      <= 1'b0;
-      data_reg      <= 8'h00;
-      control_word  <= 16'h0000;
+      read_ff       <= 1'b0;
+      phase_cnt     <= 7'd0;
+      shift_reg     <= '0;
+      clock_enable_ff <= 1'b0;
+      counter_reset_ff <= 1'b0;
+      baudrategen <= 13'd0;
 
-      tx_active     <= 1'b0;
-      rx_active     <= 1'b0;
-      rx_armed      <= 1'b0;
-
-      tx_shift_reg  <= 11'h7FF;
-      tx_bits_left  <= 4'd0;
-      tx_baud_cnt   <= 32'd0;
-
-      rx_shift_reg  <= 8'h00;
-      rx_bit_index  <= 3'd0;
-      rx_baud_cnt   <= 32'd0;
-      rx_stop_count <= 2'd0;
-
-      teleprinter_tx <= 1'b1;
-      teleprinter_rx <= 1'b1;
-    end else begin
-      //----------------------------------------------------------------------
-      // Global reset-like actions
-      //----------------------------------------------------------------------
-      if (popio || pon || crs) begin
-        flag_ff        <= 1'b0;
-        control_ff     <= 1'b0;
-        inout_ff       <= 1'b0;
-        print_ff       <= 1'b0;
-        punch_ff       <= 1'b0;
-
-        tx_active      <= 1'b0;
-        rx_active      <= 1'b0;
-        rx_armed       <= 1'b0;
-
-        tx_bits_left   <= 4'd0;
-        tx_baud_cnt    <= 32'd0;
-        rx_bit_index   <= 3'd0;
-        rx_baud_cnt    <= 32'd0;
-        rx_stop_count  <= 2'd0;
-
-        teleprinter_tx <= 1'b1;
       end else begin
         //--------------------------------------------------------------------
         // Simple flip-flop controls
         //--------------------------------------------------------------------
+        // flag buffer flip/flop
+        if (do_clf | popio | (iak & irq_ff)) flag_buffer_ff <= 1'b0;
+        else if (do_stf) flag_buffer_ff <= 1'b1;
+
+        // flag flip/flop
+        if (flag_buffer_ff & enf) flag_ff <= 1'b1;
         if (do_clf) flag_ff <= 1'b0;
-        if (do_stf) flag_ff <= 1'b1;
 
-        if (do_clc) begin
-          control_ff <= 1'b0;
-          tx_active  <= 1'b0;
-          rx_active  <= 1'b0;
-          rx_armed   <= 1'b0;
+        // irq flip/flop
+        if (sir & prh & flag_ff & ien & control_ff & flag_buffer_ff) irq_ff <= 1'b1;
+        if (~enf) irq_ff <= 1'b0;
+        // control flip/flip
+        if (do_clc) control_ff <= 1'b0;
+        if (do_stc) control_ff <= 1'b1;
+
+
+        if (do_ioo & iob_out[15]) inout_ff <= iob_out[14];
+        if (do_ioo & iob_out[15]) print_ff <= iob_out[13];
+        if (do_ioo & iob_out[15]) punch_ff <= iob_out[12];
+
+
+        if (stop_condition & t3) counter_reset_ff <= 1'b0;
+        else if (enf) counter_reset_ff <= 1'b1;
+
+        if (~counter_reset_ff & sir) begin
+            phase_cnt <= 7'd0;
+        end else if (clock_enable_ff & baudrategen_clock_enable) begin
+            phase_cnt <= phase_cnt + 7'd1;
         end
 
-        if (do_stc) begin
-          // Kodkommentar: STC sätter control_ff och startar vald operation.
-          control_ff <= 1'b1;
+        if (baudrategen_clock_enable) baudrategen <= 13'd0;    
+        else baudrategen <= baudrategen + 13'd1;
 
-          if (inout_ff) begin
-            arm_rx();
-          end else begin
-            start_tx();
-          end
-        end
+        if ((do_stc & ~inout_ff) || (~serial_in_or_flag & inout_ff)) clock_enable_ff <= 1'b1;
+        else if (~counter_reset_ff & sir) clock_enable_ff <= 1'b0;
 
-        //--------------------------------------------------------------------
-        // IOO write path
-        //--------------------------------------------------------------------
-        if (do_ioo) begin
-          if (iob_in[15]) begin
-            // Kodkommentar: Bit 15 = 1 betyder kontrollord enligt manualen.
-            control_word <= iob_in;
+        if (do_stc & inout_ff) read_ff <= 1'b1;
+        else if (~serial_in) read_ff <= 1'b0;
 
-            // Kodkommentar: Bit 14 = 1 input, 0 output.
-            inout_ff <= iob_in[14];
+        if (ioo & t3) shift_reg[10] <= 1'b1;
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[10] <= serial_in_or_flag;
 
-            // Kodkommentar: Bit 13 = print, bit 12 = punch.
-            print_ff <= iob_in[13];
-            punch_ff <= iob_in[12];
-          end else begin
-            // Kodkommentar: Dataord. Lågbyte laddas i det gemensamma dataregistret.
-            data_reg <= iob_in[7:0];
-          end
-        end
+        if (ioo & t3) shift_reg[9] <= 1'b0;
+        else if (iob_out[7] & ioo) shift_reg[9] <= 1'b1;
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[9] <= shift_reg[10];
 
-        //--------------------------------------------------------------------
-        // IOI read path side effects
-        //--------------------------------------------------------------------
-        if (do_ioi) begin
-          // Kodkommentar: Första approximation:
-          // läsning av data i inputläge tömmer flaggan.
-          if (inout_ff) begin
-            flag_ff <= 1'b0;
-          end
-        end
+        if (ioo & t3) shift_reg[8] <= 1'b0;
+        else if (iob_out[6] & ioo) shift_reg[8] <= 1'b1;
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[8] <= shift_reg[9];
 
-        //--------------------------------------------------------------------
-        // IAK side effect
-        //--------------------------------------------------------------------
-        if (iak && irq_pending) begin
-          // Kodkommentar: I denna förenklade modell ändras inget extra här.
-        end
+        if (ioo & t3) shift_reg[7] <= 1'b0;
+        else if (iob_out[5] & ioo) shift_reg[7] <= 1'b1;
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[7] <= shift_reg[8];            
 
-        //--------------------------------------------------------------------
-        // Simplified transmitter
-        //--------------------------------------------------------------------
-        if (tx_active) begin
-          teleprinter_tx <= tx_shift_reg[0];
+        if (ioo & t3) shift_reg[6] <= 1'b0;
+        else if (iob_out[4] & ioo) shift_reg[6] <= 1'b1;
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[6] <= shift_reg[7];            
 
-          if (tx_baud_cnt != 0) begin
-            tx_baud_cnt <= tx_baud_cnt - 1;
-          end else begin
-            tx_shift_reg <= {1'b1, tx_shift_reg[10:1]};
+        if (ioo & t3) shift_reg[5] <= 1'b0;
+        else if (iob_out[3] & ioo) shift_reg[5] <= 1'b1;
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[5] <= shift_reg[6]; 
 
-            if (tx_bits_left > 1) begin
-              tx_bits_left <= tx_bits_left - 1;
-              tx_baud_cnt  <= BAUD_DIV - 1;
-            end else begin
-              tx_active      <= 1'b0;
-              tx_bits_left   <= 4'd0;
-              teleprinter_tx <= 1'b1;
+        if (ioo & t3) shift_reg[4] <= 1'b0;
+        else if (iob_out[2] & ioo) shift_reg[4] <= 1'b1;
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[4] <= shift_reg[5]; 
 
-              // Kodkommentar: När ett tecken sänts färdigt sätts flaggan.
-              flag_ff        <= 1'b1;
-            end
-          end
-        end else begin
-          teleprinter_tx <= 1'b1;
-        end
+        if (ioo & t3) shift_reg[3] <= 1'b0;
+        else if (iob_out[1] & ioo) shift_reg[3] <= 1'b1;
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[3] <= shift_reg[4];   
 
-        //--------------------------------------------------------------------
-        // Simplified receiver
-        //
-        // Kodkommentar: I denna version finns ingen extern seriell ingångspinne
-        // på modulgränssnittet, så teleprinter_rx lämnas vilande. Logiken finns
-        // ändå kvar som stomme för fortsatt arbete.
-        //--------------------------------------------------------------------
-        if (rx_armed && !rx_active) begin
-          if (teleprinter_rx == 1'b0) begin
-            rx_armed      <= 1'b0;
-            rx_active     <= 1'b1;
-            rx_bit_index  <= 3'd0;
-            rx_baud_cnt   <= HALF_BAUD_DIV;
-            rx_stop_count <= 2'd0;
-          end
-        end else if (rx_active) begin
-          if (rx_baud_cnt != 0) begin
-            rx_baud_cnt <= rx_baud_cnt - 1;
-          end else begin
-            if (rx_bit_index < 8) begin
-              rx_shift_reg[rx_bit_index] <= teleprinter_rx;
-              rx_bit_index               <= rx_bit_index + 1'b1;
-              rx_baud_cnt                <= BAUD_DIV - 1;
-            end else if (rx_stop_count < STOP_BITS) begin
-              rx_stop_count <= rx_stop_count + 1'b1;
-              rx_baud_cnt   <= BAUD_DIV - 1;
+        if (ioo & t3) shift_reg[2] <= 1'b0;
+        else if (iob_out[0] & ioo) shift_reg[2] <= 1'b1;
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[2] <= shift_reg[3];  
 
-              if (rx_stop_count == STOP_BITS-1) begin
-                rx_active <= 1'b0;
-                data_reg  <= rx_shift_reg;
-                flag_ff   <= 1'b1;
-              end
-            end
-          end
-        end
+        if (~clock_enable_ff) shift_reg[1] <= 1'b0;
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[1] <= shift_reg[2];  
+
+        if (~clock_enable_ff) shift_reg[0] <= 1'b1;
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[0] <= shift_reg[1]; 
+
       end
     end
-  end
 
 endmodule
