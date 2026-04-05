@@ -78,12 +78,12 @@ module hostif #(
   int          tx_bit_index;
   int          tx_stop_count;
   logic [7:0]  tx_shift;
-  int          tx_next_char;
 
   // ------------------------------------------------------------
   // Reset and main sequential logic
   // ------------------------------------------------------------
-  always_ff @(posedge clk) begin
+  always_ff @(posedge clk or posedge crs) begin
+    int          tx_next_char;
     if (crs) begin
       // ---------------------------
       // RX reset

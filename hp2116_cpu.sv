@@ -47,7 +47,9 @@ module hp2116_cpu #(
   output logic [14:0]  mem_addr,
   output logic [15:0]  mem_wdata,
   input  logic [15:0]  mem_rdata,
-  output logic         mem_we
+  output logic         mem_we,
+  input  logic         uart_rx,
+  output logic         uart_tx  
 );
 
   //--------------------------------------------------------------------------
@@ -69,6 +71,40 @@ module hp2116_cpu #(
 
   logic IEN;
   logic RUN;
+
+  logic prl;
+  logic flgl;
+  logic sfc;
+  logic irql;
+  logic clf;
+  logic ien;
+  logic stf;
+  logic iak;
+  logic t3;
+  logic skf;
+
+  logic iog;
+  logic popio;
+
+  logic srq;
+  logic ioo;
+  logic clc;
+  logic stc;
+  logic prh;
+  logic ioi;
+  logic sfs;
+
+  logic irqh;
+
+  logic [15:0] iob_out;
+  logic [15:0] iob_in;
+
+  logic sir;
+  logic enf;
+  logic flgh;
+
+  logic edt;
+  logic pon;
 
   assign run_ff = RUN;
   assign ien_ff = IEN;
@@ -93,7 +129,7 @@ module hp2116_cpu #(
 // Kodkommentar: HP12531C teleprinter interface
 hp12531c serial (
   .clk(clk),
-  .rst_n(rst_n),
+  .crs(~rst_n),
 
   .prl(prl),
   .flgl(flgl),
@@ -105,15 +141,14 @@ hp12531c serial (
   .iak(iak),
   .t3(t3),
   .skf(skf),
-  .crs(crs),
 
-  .scm_l(scm_l),
-  .scl_l(scl_l),
+  .scm_l(msc1),
+  .scl_l(lsc0),
 
   .iog(iog),
   .popio(popio),
 
-  .iob16_or_bios_n(iob16_or_bios_n),
+  .iob16_or_bios_n(1'b0),
 
   .srq(srq),
   .ioo(ioo),
@@ -124,8 +159,8 @@ hp12531c serial (
   .sfs(sfs),
 
   .irqh(irqh),
-  .scl_h(scl_h),
-  .scm_h(scm_h),
+  .scl_h(1'b0),
+  .scm_h(1'b0),
 
   .iob_out(iob_out),
   .iob_in(iob_in),
@@ -134,12 +169,14 @@ hp12531c serial (
   .enf(enf),
   .flgh(flgh),
 
-  .run(run),
+  .run(RUN),
 
   .edt(edt),
   .pon(pon),
-  .bioo_n(bioo_n),
-  .sfsb_or_bioi_n(sfsb_or_bioi_n)
+  .bioo_n(1'b0),
+  .sfsb_or_bioi_n(1'b0),
+  .uart_rx(uart_rx),
+  .uart_tx(uart_tx)  
 );
   //--------------------------------------------------------------------------
   // Helper: next T-state
@@ -353,11 +390,13 @@ hp12531c serial (
   // DISPLAY MEMORY pending capture
   //--------------------------------------------------------------------------
   logic panel_disp_pending;
-  logic [16:0] add_sum;
+  //logic [16:0] add_sum;
   //--------------------------------------------------------------------------
   // Main sequential logic
   //--------------------------------------------------------------------------
   always_ff @(posedge clk or negedge rst_n) begin
+    logic [16:0] add_sum;
+    add_sum = '0;
     if (!rst_n) begin
       A <= 16'o000000;
       B <= 16'o000000;

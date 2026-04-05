@@ -1,49 +1,54 @@
 // sim_main.cpp
 //
-// Kodkommentar: Minimal Verilator-slinga med VCD-tracing och tidsstegning.
+// Kodkommentar: Minimal Verilator-slinga där tracing kan stängas av för bättre fart.
 
-#include "Vtb_hp12531c.h"
+#include "Vtb_hp2116.h"
 #include "verilated.h"
 #include "verilated_vcd_c.h"
 
-int main(int argc, char **argv) {
-    // Kodkommentar: Skapa Verilator-kontext så att vi kan styra simtid.
+int main(int argc, char** argv) {
+    // Kodkommentar: Skapa kontext och skicka vidare argument.
     VerilatedContext* contextp = new VerilatedContext;
-
-    // Kodkommentar: Skicka vidare kommandoradsargument till Verilator.
     contextp->commandArgs(argc, argv);
 
-    // Kodkommentar: Slå på tracing när egen C++-main används.
-    Verilated::traceEverOn(true);
+    // Kodkommentar: Sätt false som standard för maximal prestanda.
+    const bool enable_trace = false;
 
-    // Kodkommentar: Skapa toppnivåinstansen av testbänken.
-    Vtb_hp12531c* top = new Vtb_hp12531c{contextp};
+    // Kodkommentar: Slå bara på tracing om det verkligen behövs.
+    if (enable_trace) {
+        Verilated::traceEverOn(true);
+    }
 
-    // Kodkommentar: Skapa VCD-traceobjekt och koppla det till modellen.
-    VerilatedVcdC* tfp = new VerilatedVcdC;
-    top->trace(tfp, 99);
+    // Kodkommentar: Skapa toppmodulen.
+    Vtb_hp2116* top = new Vtb_hp2116{contextp, "TOP"};
 
-    // Kodkommentar: Öppna VCD-filen i arbetskatalogen.
-    tfp->open("tb_hp12531c.vcd");
+    // Kodkommentar: Skapa traceobjekt endast när tracing används.
+    VerilatedVcdC* tfp = nullptr;
+    if (enable_trace) {
+        tfp = new VerilatedVcdC;
+        top->trace(tfp, 99);
+        tfp->open("tb_hp2116.vcd");
+    }
 
-    // Kodkommentar: Kör simuleringen tills $finish anropas från SystemVerilog.
+    // Kodkommentar: Kör tills $finish.
     while (!contextp->gotFinish()) {
-        // Kodkommentar: Utvärdera modellen för aktuell simtid.
         top->eval();
 
-        // Kodkommentar: Dumpa alla trace-signaler till VCD-filen.
-        tfp->dump(contextp->time());
+        // Kodkommentar: Dumpa endast om tracing är aktiv.
+        if (tfp) {
+            tfp->dump(contextp->time());
+        }
 
-        // Kodkommentar: Avancera simtiden ett steg så att delays/event controls fungerar.
+        // Kodkommentar: Stega tiden.
         contextp->timeInc(1);
     }
 
-    // Kodkommentar: Säkerställ att sista tillståndet också kommer med.
+    // Kodkommentar: Sista eval/dump.
     top->eval();
-    tfp->dump(contextp->time());
-
-    // Kodkommentar: Stäng VCD-filen ordentligt.
-    tfp->close();
+    if (tfp) {
+        tfp->dump(contextp->time());
+        tfp->close();
+    }
 
     delete tfp;
     delete top;

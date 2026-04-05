@@ -315,7 +315,7 @@ endtask
     repeat (460) @(posedge clk);
     //pulse_1clk(sir);
     repeat (20) @(posedge clk);
-    output_on_bus(16'o140000);
+    output_on_bus(16'o160000);
     pulse_a_signal(clf);
     pulse_a_signal(stc);    
     // Kodkommentar: Exempel på att driva inout-signalen 'run' från testbänken.

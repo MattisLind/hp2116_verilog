@@ -50,12 +50,14 @@ module hp12531c #(
   input  logic         enf,
   output logic         flgh,
 
-  inout  logic         run,
+  input  logic         run,
 
   output logic         edt,
   input  logic         pon,
   input  logic         bioo_n,
-  input  logic         sfsb_or_bioi_n
+  input  logic         sfsb_or_bioi_n,
+  input  logic         uart_rx,
+  output logic         uart_tx  
 );
 
   //--------------------------------------------------------------------------
@@ -87,8 +89,6 @@ module hp12531c #(
   logic        serial_in_or_flag;
   logic [12:0] baudrategen;
   logic A, B, C, D, E, F, G;
-  logic        serial_in;
-  logic        serial_out;
 
   logic [6:0]   phase_cnt;
   logic [10:0]  shift_reg;
@@ -98,16 +98,6 @@ module hp12531c #(
   logic  shift_enable;
   logic baudrategen_clock_enable;
 
-   hostif #(
-    .CLOCK_HZ(CLOCK_HZ),
-    .BAUD(BAUD),
-    .STOP_BITS(STOP_BITS)
-  ) dut (
-    .clk(clk),
-    .crs(crs),
-    .serial_in(serial_in),
-    .serial_out(serial_out)
-  );
 
   always_comb begin
     // Kodkommentar: 12531C använder endast nedre select code.
@@ -146,7 +136,7 @@ module hp12531c #(
     // Kodkommentar: EDT används inte i denna modell.
     edt  = 1'b0;
 
-    serial_in_or_flag = serial_in  | flag_ff;
+    serial_in_or_flag = uart_rx | flag_ff;
 
   end
 
@@ -181,7 +171,7 @@ module hp12531c #(
     assign iob_in[15] = clock_enable_ff;
     assign baudrategen_clock_enable = (baudrategen == 13'd4);
 
-    assign serial_out = ~ ((~shift_reg[0] & ~inout_ff & (print_ff | punch_ff)) | (~serial_in_or_flag & (print_ff | punch_ff) & inout_ff));
+    assign uart_tx = ~ ((~shift_reg[0] & ~inout_ff & (print_ff | punch_ff)) | (~serial_in_or_flag & (print_ff | punch_ff) & inout_ff));
 
   //--------------------------------------------------------------------------
   // Main sequential logic
@@ -243,7 +233,7 @@ module hp12531c #(
         else if (~counter_reset_ff & sir) clock_enable_ff <= 1'b0;
 
         if (do_stc & inout_ff) read_ff <= 1'b1;
-        else if (~serial_in) read_ff <= 1'b0;
+        else if (~uart_rx) read_ff <= 1'b0;
 
         if (ioo & t3) shift_reg[10] <= 1'b1;
         else if (shift_enable & baudrategen_clock_enable) shift_reg[10] <= serial_in_or_flag;
