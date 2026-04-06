@@ -83,7 +83,6 @@ module hp2116_cpu #(
   logic t3;
   logic skf;
 
-  logic iog;
   logic popio;
 
   logic srq;
@@ -97,7 +96,7 @@ module hp2116_cpu #(
   logic irqh;
 
   logic [15:0] iob_out;
-  logic [15:0] iob_in;
+  logic [15:0] iob_in, iob_in_internal;
 
   logic sir;
   logic enf;
@@ -112,16 +111,16 @@ module hp2116_cpu #(
   //--------------------------------------------------------------------------
   // T-state enum: T0..T7
   //--------------------------------------------------------------------------
-  typedef enum logic [2:0] {
-    T0 = 3'd0,
-    T1 = 3'd1,
-    T2 = 3'd2,
-    T3 = 3'd3,
-    T4 = 3'd4,
-    T5 = 3'd5,
-    T6 = 3'd6,
-    T7 = 3'd7
-  } tstate_t;
+typedef enum logic [2:0] {
+  T0 = 3'b000,
+  T1 = 3'b001,
+  T2 = 3'b011,
+  T3 = 3'b010,
+  T4 = 3'b110,
+  T5 = 3'b111,
+  T6 = 3'b101,
+  T7 = 3'b100
+} tstate_t;
 
   tstate_t tstate;
 
@@ -136,7 +135,7 @@ hp12531c serial (
   .sfc(sfc),
   .irql(irql),
   .clf(clf),
-  .ien(ien),
+  .ien(Interrupt_System_Enable),
   .stf(stf),
   .iak(iak),
   .t3(t3),
@@ -145,7 +144,7 @@ hp12531c serial (
   .scm_l(msc1),
   .scl_l(lsc0),
 
-  .iog(iog),
+  .iog(is_io_instr),
   .popio(popio),
 
   .iob16_or_bios_n(1'b0),
@@ -228,6 +227,7 @@ hp12531c serial (
   logic        is_jmp;
   logic        msc0, msc1,msc2,msc3,msc4,msc5,msc6,msc7,lsc0,lsc1,lsc2,lsc3,lsc4,lsc5,lsc6,lsc7;  
   logic        skip_on_overflow;
+  logic        sfs_intp, sfc_intp, skip_intp, skip_io;
 
   logic set_control, clear_control, clear_flag, set_flag, set_overflow, clear_overflow, set_interrupt_control, clear_interrupt_control, set_interrupt_system_enable, clear_interrupt_system_enable;
   always_comb begin
@@ -280,9 +280,40 @@ hp12531c serial (
     clear_interrupt_system_enable = clear_flag & msc0 & lsc0;
     // Kodkommentar: JMP känns igen via op-fältet.
     is_jmp = (op4 == 4'o5);
-
+    ioo = tstate[1] & ~tstate[0];
+    ioi = tstate[2] &  tstate[1];
+    iob_out = ioo ? (IR[0] ? A : B) : 16'h0000;
+    sfs = is_io_instr & (TR[8:6] == 3'o3);
+    sfc = is_io_instr & (TR[8:6] == 3'o2);
+    sfs_intp = sfs & msc0 & lsc0 & Interrupt_System_Enable;
+    sfc_intp = sfc & msc0 & lsc0 & ~Interrupt_System_Enable;
+    skip_intp = sfc_intp | sfs_intp;
+    skip_io = skf | skip_intp;
+    clf = clear_flag & (tstate == T4);
+    stf = set_flag & (tstate == T3);
+    stc = set_control & (tstate == T4);
+    clc = clear_control & (tstate == T4);
+    t3 = (tstate == T3);
+    sir = (tstate == T5);
+    enf = (tstate == T2);
   end
 
+
+always @* begin
+    // Standardvärde för att undvika latchar
+    iob_in_internal = 16'h0000;
+
+    // Specialfall: interna select codes 00-07 (och ev. reserverade värden)
+    if (TR[5:0] < 6'o10) begin
+        case (TR[5:0])
+            6'o01: iob_in_internal = sw;
+            default: iob_in_internal = 16'h0000;  
+        endcase
+    end
+    else begin
+      iob_in_internal = iob_in;
+    end
+end
 
   task automatic do_shift_rotate(input logic [2:0] op);
   begin
@@ -610,6 +641,9 @@ hp12531c serial (
                     end    
 
                   end
+                  if (skip_io) begin
+                    CARRY <= 1'b1;
+                  end
                   if (skip_on_overflow) begin
                     CARRY <= 1'b1;
                   end
@@ -652,7 +686,24 @@ hp12531c serial (
                   end
                   if (is_asg_instr & ~TR[1] & ~TR[3] & ~TR[4] & ~TR[5] & TR[0]) begin // unconditional skip
                     CARRY <= 1'b1;  
-                  end   
+                  end  
+                  if (is_io_instr) begin
+                    case (TR[8:6]) 
+                      3'o5: begin
+                        if (IR[1] == 1'b0) begin
+                          A <= iob_in_internal;
+                        end 
+                        else begin
+                          B <= iob_in_internal;
+                        end
+                      end
+                    endcase
+                  end 
+                  case (TR[5:0]) 
+                    6'o01: begin
+                      //sw <= iob_out;
+                    end
+                  endcase
                 end
 
                 T7: begin
@@ -660,6 +711,8 @@ hp12531c serial (
                   // Normalt stegas P till nästa sekventiella instruktion.
                   if (is_halt_instr) begin
                     RUN   <= 1'b0;
+                    M <= P + 15'o00001;
+                    P <= P + 15'o00001;
                     phase <= PH_FETCH;
                   end                   
                   // Kodkommentar: HALT känns igen redan här i FETCH/T7.
@@ -677,10 +730,6 @@ hp12531c serial (
                   else if (is_jmp && ind) begin
                     M     <= direct_addr;
                     phase <= PH_INDIRECT;
-                  end
-                  else if (is_io_instr) begin
-                    M <= P + 15'o00001;
-                    P <= P + 15'o00001;
                   end
                   // Kodkommentar: Övriga indirekta minnesreferensinstruktioner
                   // går också vidare via indirektfasen.

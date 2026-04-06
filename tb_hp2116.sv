@@ -189,7 +189,8 @@ module tb_hp2116;
   task automatic pulse_btn(ref logic btn);
     begin
       btn = 1'b1;
-      @(posedge clk);
+      @(posedge clk);   // DUT får sampla knappen här
+      @(negedge clk);   // Vänta tills efter samplingskanten
       btn = 1'b0;
     end
   endtask
@@ -404,9 +405,9 @@ module tb_hp2116;
     pulse_btn(load_b_btn);    
 
    // Example: set address via switches and LOAD ADDRESS
-    sw = 16'o000002;
+    sw = 16'o00002;
     pulse_btn(load_addr_btn);    
-
+    sw = 16'o00010;
     // Enable single-cycle mode and do two phase-steps
     //pulse_btn(single_cycle_btn); // enter single mode + arm one phase
     pulse_btn(run_btn);          // RUN
@@ -420,6 +421,44 @@ module tb_hp2116;
 
     repeat (20) @(posedge clk);
     $finish;
+  end
+
+  // Övervaka när CPU:n stannar
+  always @(negedge dut.run_ff) begin
+      // Rapportera CPU-status vid halt
+      $display("TIME %0t: CPU HALTED P=%06o IR=%06o TR=%06o A=%06o B=%06o",
+              $time, dut.P, dut.IR, dut.TR, dut.A, dut.B);
+
+      if (dut.P == 16'o000445) begin
+          // Vänta lite så att haltläget hinner stabiliseras
+          #1;
+
+          // Lägg in värdet i switchregistret
+          sw = 16'o177777;
+          $display("TIME %0t: Loaded switch register with %06o", $time, sw);
+
+          // Vänta lite innan run-knappen pulsas
+          #1;
+
+          // Starta CPU:n igen
+          pulse_btn(run_btn);
+          $display("TIME %0t: Pulsed run button", $time);
+      end
+      if (dut.P == 16'o000452) begin
+          // Vänta lite så att haltläget hinner stabiliseras
+          #1;
+
+          // Lägg in värdet i switchregistret
+          sw = 16'o000000;
+          $display("TIME %0t: Loaded switch register with %06o", $time, sw);
+
+          // Vänta lite innan run-knappen pulsas
+          #1;
+
+          // Starta CPU:n igen
+          pulse_btn(run_btn);
+          $display("TIME %0t: Pulsed run button", $time);
+      end      
   end
 
   // Optional trace
