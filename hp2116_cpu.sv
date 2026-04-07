@@ -75,7 +75,7 @@ module hp2116_cpu #(
   logic prl;
   logic flgl;
   logic sfc;
-  logic irql;
+  logic irq10;
   logic clf;
   logic ien;
   logic stf;
@@ -104,7 +104,9 @@ module hp2116_cpu #(
 
   logic edt;
   logic pon;
+  logic interrupt; 
 
+  logic crs;
   assign run_ff = RUN;
   assign ien_ff = IEN;
 
@@ -128,12 +130,12 @@ typedef enum logic [2:0] {
 // Kodkommentar: HP12531C teleprinter interface
 hp12531c serial (
   .clk(clk),
-  .crs(~rst_n),
+  .crs(crs),
 
   .prl(prl),
   .flgl(flgl),
   .sfc(sfc),
-  .irql(irql),
+  .irql(irq10),
   .clf(clf),
   .ien(Interrupt_System_Enable),
   .stf(stf),
@@ -153,7 +155,7 @@ hp12531c serial (
   .ioo(ioo),
   .clc(clc),
   .stc(stc),
-  .prh(prh),
+  .prh(1'b1),
   .ioi(ioi),
   .sfs(sfs),
 
@@ -274,11 +276,10 @@ hp12531c serial (
     skip_on_overflow = is_io_instr & msc0 & lsc1 & ((TR[8:6] == 3'o3) & OVERFLOW | (TR[8:6] == 3'o2) & ~OVERFLOW);
     set_overflow = set_flag & msc0 & lsc1;
     clear_overflow = clear_flag & msc0 & lsc1;
-    set_interrupt_control = set_control & msc0 & lsc0;
-    clear_interrupt_control = clear_control & msc0 & lsc0;
+    clear_interrupt_control = (((op4 == 4'o3)| (op4 == 4'o5)) & IR[5] ) | clear_control | set_control | clear_flag | set_flag | phase == PH_INTERRUPT ;
     set_interrupt_system_enable = set_flag & msc0 & lsc0;
     clear_interrupt_system_enable = clear_flag & msc0 & lsc0;
-    // Kodkommentar: JMP känns igen via op-fältet.
+    iak = (tstate == T0) & (phase == PH_FETCH) & Interrupt_Control;
     is_jmp = (op4 == 4'o5);
     ioo = tstate[1] & ~tstate[0];
     ioi = tstate[2] &  tstate[1];
@@ -296,6 +297,8 @@ hp12531c serial (
     t3 = (tstate == T3);
     sir = (tstate == T5);
     enf = (tstate == T2);
+    crs = clc & msc0 & lsc0 | popio;
+    interrupt = irq10 & Interrupt_System_Enable & Interrupt_Control;
   end
 
 
@@ -452,11 +455,12 @@ end
       step_started_by_sc <= 1'b0;
 
       panel_disp_pending <= 1'b0;
+      popio <= 1'b1;
 
     end else begin
       // Kodkommentar: Default är ingen minnesskrivning denna cykel.
       mem_we <= 1'b0;
-
+      popio <= 1'b0;
       //======================================================================
       // Front panel commands
       //======================================================================
@@ -538,6 +542,8 @@ end
                   // Kodkommentar: Lägg programräknaren i M inför minnesläsning.
                   //M <= P;
                   CARRY <= 1'b0;
+
+                  Interrupt_Control <= 1'b1;                  
                 end
 
                 T1: begin
@@ -551,9 +557,7 @@ end
                 end
 
                 T3: begin
-                  if(set_interrupt_control) begin
-                    Interrupt_Control <= 1'b1;
-                  end
+
                   if(set_interrupt_system_enable) begin
                     Interrupt_System_Enable <= 1'b1;
                   end 
@@ -689,7 +693,15 @@ end
                   end  
                   if (is_io_instr) begin
                     case (TR[8:6]) 
-                      3'o5: begin
+                      3'o4: begin // MIA
+                        if (IR[1] == 1'b0) begin
+                          A <= A | iob_in_internal;
+                        end 
+                        else begin
+                          B <= B | iob_in_internal;
+                        end
+                      end                    
+                      3'o5: begin //LIA
                         if (IR[1] == 1'b0) begin
                           A <= iob_in_internal;
                         end 
@@ -709,7 +721,10 @@ end
                 T7: begin
                   // Kodkommentar: FETCH avslutas vid T7.
                   // Normalt stegas P till nästa sekventiella instruktion.
-                  if (is_halt_instr) begin
+                  if (interrupt) begin
+                    phase <= PH_INTERRUPT;
+                  end
+                  else if (is_halt_instr) begin
                     RUN   <= 1'b0;
                     M <= P + 15'o00001;
                     P <= P + 15'o00001;
@@ -908,6 +923,10 @@ end
             PH_INTERRUPT: begin
               if (tstate == T7) begin
                 phase <= PH_FETCH;
+                P <= P - 15'o00001;
+                if (irq10) begin
+                  M <= 15'o000010;
+                end
               end
             end
 

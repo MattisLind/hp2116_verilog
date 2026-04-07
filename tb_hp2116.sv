@@ -364,6 +364,183 @@ module tb_hp2116;
       $display("ABS loader: loaded 0 words");
     end
   endtask
+function automatic string fmt_mem_operand(input logic [15:0] tr);
+    logic indirect;
+    logic [9:0] addr;
+
+    begin
+        indirect = tr[15];
+        addr     = tr[9:0];
+
+        if (indirect)
+            return $sformatf("%06o,I", addr);
+        else
+            return $sformatf("%06o", addr);
+    end
+endfunction
+// Kodkommentar: Minimal första version av disassemblern.
+// Kodkommentar: Disassembler med lokal operandsträng för minnesreferenser.
+function automatic string mini_disasm(input logic [15:0] tr);
+    logic [5:0] ir;
+    logic [3:0] op4;
+    string memop;
+
+    begin
+        ir    = tr[15:10];
+        op4   = ir[4:1];
+        memop = fmt_mem_operand(tr);
+
+        if (((ir[5:2] == 4'o10) && ir[0]) && (tr[8:6] == 3'o0))
+            return "HLT";
+
+        if (ir[5:2] == 4'o00) begin
+            if (ir[0])
+                return "ASG";
+            else
+                return "SRG";
+        end
+        else if (ir[5:2] == 4'o10) begin
+            if (ir[0])
+              case (tr[8:6])
+                3'o0: begin
+                  if (tr[10]) begin
+                    if (tr[9]) begin
+                      return {"HLT ", $sformatf("%02o,C", tr[5:0])};
+                    end else 
+                      return {"HLT ", $sformatf("%02o", tr[5:0])};
+                    end 
+                  end
+                3'o1: begin
+                  if (tr[9]) begin
+                    return {"CLF ", $sformatf("%02o", tr[5:0])}; 
+                  end
+                  else begin
+                    return {"STF ", $sformatf("%02o", tr[5:0])};
+                  end
+                end
+                3'o2: begin
+                  return {"SFC ", $sformatf("%02o", tr[5:0])};
+                end
+                3'o3: begin
+                  return {"SFS ", $sformatf("%02o", tr[5:0])};
+                end
+                3'o4: begin 
+                  if (tr[11]) begin
+                    if (tr[9]) begin
+                      return {"MIB ", $sformatf("%02o,C", tr[5:0])};
+                    end 
+                    else begin
+                      return {"MIB ", $sformatf("%02o", tr[5:0])};
+                    end                    
+                  end
+                  else begin
+                    if (tr[9]) begin
+                      return {"MIA ", $sformatf("%02o,C", tr[5:0])};
+                    end 
+                    else begin 
+                      return {"MIA ", $sformatf("%02o", tr[5:0])};
+                    end                    
+                  end
+
+                end                
+                3'o5: begin 
+                  if (tr[11]) begin
+                    if (tr[9]) begin
+                      return {"LIB ", $sformatf("%02o,C", tr[5:0])};
+                    end 
+                    else begin 
+                      return {"LIB ", $sformatf("%02o", tr[5:0])};
+                    end
+                  end
+                  else begin
+                    if (tr[9]) begin
+                      return {"LIA ", $sformatf("%02o,C", tr[5:0])};
+                    end 
+                    else begin 
+                      return {"LIA ", $sformatf("%02o", tr[5:0])};
+                    end                    
+                  end
+                end
+                3'o6: begin
+                  if (tr[11]) begin
+                      if (tr[9]) begin
+                        return {"OTB ", $sformatf("%02o,C", tr[5:0])};
+                      end 
+                      else begin 
+                        return {"OTB ", $sformatf("%02o", tr[5:0])};
+                      end                    
+                  end
+                  else begin
+                      if (tr[9]) begin
+                        return {"OTA ", $sformatf("%02o,C", tr[5:0])};
+                      end 
+                      else begin 
+                        return {"OTA ", $sformatf("%02o", tr[5:0])};
+                      end                      
+                  end 
+                end
+                3'o7: begin
+                  if (tr[11]) begin
+                      if (tr[9]) begin
+                        return {"CLC ", $sformatf("%02o,C", tr[5:0])};
+                      end 
+                      else begin 
+                        return {"CLC ", $sformatf("%02o", tr[5:0])};
+                      end   
+                  end
+                  else begin
+                      if (tr[9]) begin
+                        return {"STC ", $sformatf("%02o,C", tr[5:0])};
+                      end 
+                      else begin 
+                        return {"STC ", $sformatf("%02o", tr[5:0])};
+                      end                     
+                  end
+                end 
+              endcase
+            else
+                return "???";
+        end
+        else begin
+            unique case (op4)
+                4'o10: return {"ADA ", memop};
+                4'o11: return {"ADB ", memop};
+                4'o02: return {"AND ", memop};
+                4'o12: return {"CPA ", memop};
+                4'o13: return {"CPB ", memop};
+                4'o06: return {"IOR ", memop};
+                4'o07: return {"ISZ ", memop};
+                4'o05: return {"JMP ", memop};
+                4'o03: return {"JSB ", memop};
+                4'o14: return {"LDA ", memop};
+                4'o15: return {"LDB ", memop};
+                4'o16: return {"STA ", memop};
+                4'o17: return {"STB ", memop};
+                4'o04: return {"XOR ", memop};
+                default: return "???";
+            endcase
+        end
+    end
+endfunction
+
+// Kodkommentar: Skriv ut disassembly-strängen med tydliga avgränsare
+// Kodkommentar: så att dolda tecken blir lättare att upptäcka.
+always @(posedge clk) begin
+    if (rst_n && dut.run_ff) begin
+        if ((dut.phase == 3'd0) && (dut.tstate == 3'd7)) begin
+            string a,b, dis;
+            dis = $sformatf("%-20s", mini_disasm(dut.TR));
+
+            a = $sformatf("%06o", dut.A);
+            b = $sformatf("%06o", dut.B);
+
+            $display("TIME %020t  %06o %06o  %-20s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o",
+                     $time, dut.P, dut.TR, dis,
+                     a, b, dut.EXTEND, dut.OVERFLOW, dut.Interrupt_System_Enable);
+        end
+    end
+end
+
 
   // ------------------------------------------------------------
   // Test sequence demonstrating panel operations
@@ -405,7 +582,8 @@ module tb_hp2116;
     pulse_btn(load_b_btn);    
 
    // Example: set address via switches and LOAD ADDRESS
-    sw = 16'o00002;
+    //sw = 16'o000002;  // run pre-test
+    sw = 16'o000100;    // skip pre-test and go directly to configurator in conversational mode.
     pulse_btn(load_addr_btn);    
     sw = 16'o00010;
     // Enable single-cycle mode and do two phase-steps
@@ -459,15 +637,6 @@ module tb_hp2116;
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
       end      
-  end
-
-  // Optional trace
-  always_ff @(posedge clk) begin
-    // Kodkommentar: Undvik att använda rst_n här för att slippa
-    // SYNCASYNCNET-varningen i Verilator.
-    if (mem_we) begin
-      $display("[%0t] MEM WRITE addr=%0o data=%0o (hex %04h)", $time, mem_addr, mem_wdata, mem_wdata);
-    end
   end
 
 endmodule

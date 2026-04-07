@@ -206,7 +206,7 @@ module hp12531c #(
 
         // irq flip/flop
         if (sir & prh & flag_ff & ien & control_ff & flag_buffer_ff) irq_ff <= 1'b1;
-        if (~enf) irq_ff <= 1'b0;
+        if (enf) irq_ff <= 1'b0;
         // control flip/flip
         if (do_clc) control_ff <= 1'b0;
         if (do_stc) control_ff <= 1'b1;
