@@ -378,6 +378,74 @@ function automatic string fmt_mem_operand(input logic [15:0] tr);
             return $sformatf("%06o", addr);
     end
 endfunction
+
+function automatic string append_part(input string base, input string part);
+    if (part == "")
+        return base;
+    else if (base == "")
+        return part;
+    else
+        return {base, ", ", part};
+endfunction
+
+
+function automatic string fmt_rotate_shift(input logic [2:0] code, input logic a);
+  string acc;
+  if (a) acc="B";
+  else acc="A";
+  case (code)
+    3'o0: return $sformatf("%sLS", acc);
+    3'o1: return $sformatf("%sRS", acc);
+    3'o2: return $sformatf("R%sL", acc);
+    3'o3: return $sformatf("R%sR", acc);
+    3'o4: return $sformatf("%sLR", acc);
+    3'o5: return $sformatf("ER%s", acc);
+    3'o6: return $sformatf("EL%s", acc);
+    3'o7: return $sformatf("%sLF", acc);
+  endcase
+endfunction
+
+
+function automatic string disasm_srg(input logic [15:0] tr);
+    string result;
+    string part;
+
+    begin
+        result = "";
+
+        // Kodkommentar: Första shift/rotate-operationen från bitfält [8:6].
+        if (tr[9]) begin
+            part = fmt_rotate_shift(tr[8:6], tr[11]);
+            result = append_part(result, part);
+        end
+
+        // Kodkommentar: CLE läggs till om bit 5 är satt.
+        if (tr[5]) begin
+            result = append_part(result, "CLE");
+        end
+
+        // Kodkommentar: SLA eller SLB läggs till om bit 3 är satt.
+        if (tr[3]) begin
+            if (tr[11])
+                result = append_part(result, "SLB");
+            else
+                result = append_part(result, "SLA");
+        end
+
+        // Kodkommentar: Sista shift/rotate-operationen från bitfält [2:0].
+        if (tr[4]) begin
+            part = fmt_rotate_shift(tr[2:0], tr[11]);
+            result = append_part(result, part);
+        end
+
+        // Kodkommentar: Om inget delkommando hittades, returnera en reservtext.
+        if (result == "")
+            return "NOP";
+        else
+            return result;
+    end
+endfunction
+
 // Kodkommentar: Minimal första version av disassemblern.
 // Kodkommentar: Disassembler med lokal operandsträng för minnesreferenser.
 function automatic string mini_disasm(input logic [15:0] tr);
@@ -390,14 +458,12 @@ function automatic string mini_disasm(input logic [15:0] tr);
         op4   = ir[4:1];
         memop = fmt_mem_operand(tr);
 
-        if (((ir[5:2] == 4'o10) && ir[0]) && (tr[8:6] == 3'o0))
-            return "HLT";
 
         if (ir[5:2] == 4'o00) begin
             if (ir[0])
                 return "ASG";
             else
-                return "SRG";
+                return disasm_srg(tr);
         end
         else if (ir[5:2] == 4'o10) begin
             if (ir[0])
@@ -534,9 +600,7 @@ always @(posedge clk) begin
             a = $sformatf("%06o", dut.A);
             b = $sformatf("%06o", dut.B);
 
-            $display("TIME %020t  %06o %06o  %-20s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o",
-                     $time, dut.P, dut.TR, dis,
-                     a, b, dut.EXTEND, dut.OVERFLOW, dut.Interrupt_System_Enable);
+            $display("TIME %020t  A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, a, b, dut.EXTEND, dut.OVERFLOW, dut.Interrupt_System_Enable, dut.P, dut.TR, dis);
         end
     end
 end
