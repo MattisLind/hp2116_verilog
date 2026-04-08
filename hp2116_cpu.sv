@@ -281,8 +281,8 @@ hp12531c serial (
     clear_interrupt_system_enable = clear_flag & msc0 & lsc0;
     iak = (tstate == T0) & (phase == PH_FETCH) & Interrupt_Control;
     is_jmp = (op4 == 4'o5);
-    ioo = tstate[1] & ~tstate[0];
-    ioi = tstate[2] &  tstate[1];
+    ioo = tstate[1] & ~tstate[0] & (TR[8:6] == 3'o6);
+    ioi = tstate[2] &  tstate[1] & ((TR[8:6] == 3'o5) | (TR[8:6] == 3'o4));
     iob_out = ioo ? (IR[0] ? A : B) : 16'h0000;
     sfs = is_io_instr & (TR[8:6] == 3'o3);
     sfc = is_io_instr & (TR[8:6] == 3'o2);

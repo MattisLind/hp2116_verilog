@@ -123,7 +123,7 @@ module tb_hp2116;
   endtask
 
   task automatic uart_recv_byte(
-    input  logic serial_line,
+    ref  logic serial_line,
     output logic [7:0] data
   );
     time bit_time;
@@ -151,7 +151,7 @@ module tb_hp2116;
 
 
   task automatic uart_expect_byte(
-    input logic serial_line,
+    ref logic serial_line,
     input logic [7:0] expected
   );
     logic [7:0] received;
@@ -329,7 +329,7 @@ module tb_hp2116;
         load_addr = addr_w[14:0] + i[14:0];
 
         mem[load_addr] = data_w;
-        $display("mem[%05o]=%06o",load_addr,data_w);
+        //$display("mem[%05o]=%06o",load_addr,data_w);
         any_loaded = 1;
         if (load_addr < min_addr) min_addr = load_addr;
         if (load_addr > max_addr) max_addr = load_addr;
@@ -446,6 +446,33 @@ function automatic string disasm_srg(input logic [15:0] tr);
     end
 endfunction
 
+
+function automatic string disasm_asg (input logic [15:0] tr);
+  string acc, result;
+  if (tr[11]) acc ="B";
+  else acc="A";
+  if (tr[9:0] == 10'o0000) result = append_part(result, "NOP");
+  else begin
+    case (tr[9:8])
+      2'o1: result = append_part(result, $sformatf("CL%s", acc));
+      2'o2: result = append_part(result, $sformatf("CM%s", acc));
+      2'o3: result = append_part(result, $sformatf("CC%s", acc));
+    endcase
+    if (tr[5]) result = append_part(result, "SEZ");
+    case (tr[7:6])
+      2'o1: result = append_part(result, "CLE");
+      2'o2: result = append_part(result, "CME");
+      2'o3: result = append_part(result, "CCE");
+    endcase 
+    if (tr[4]) result = append_part(result, $sformatf("SS%s", acc));
+    if (tr[3]) result = append_part(result, $sformatf("SL%s", acc));
+    if (tr[2]) result = append_part(result, $sformatf("IN%s", acc)); 
+    if (tr[1]) result = append_part(result, $sformatf("SZ%s", acc));
+    if (tr[0]) result = append_part(result, "RSS");
+    end
+  return result;
+endfunction
+
 // Kodkommentar: Minimal första version av disassemblern.
 // Kodkommentar: Disassembler med lokal operandsträng för minnesreferenser.
 function automatic string mini_disasm(input logic [15:0] tr);
@@ -461,7 +488,7 @@ function automatic string mini_disasm(input logic [15:0] tr);
 
         if (ir[5:2] == 4'o00) begin
             if (ir[0])
-                return "ASG";
+                return disasm_asg(tr);
             else
                 return disasm_srg(tr);
         end
@@ -589,18 +616,145 @@ function automatic string mini_disasm(input logic [15:0] tr);
     end
 endfunction
 
+
+// Kodkommentar: Returnera en tom fastbreddssträng för icke-minnesreferensinstruktioner.
+function automatic string blank_memref_info();
+    return "                 ";  // 19 tecken: samma bredd som "M=001405 D=055555"
+endfunction
+
+
+// Kodkommentar: Avgör om instruktionen är en minnesreferensinstruktion.
+function automatic logic is_memref_instr(input logic [15:0] tr);
+    logic [5:0] ir;
+    logic [3:0] op4;
+
+    begin
+        ir  = tr[15:10];
+        op4 = ir[4:1];
+
+        // Kodkommentar: Shift/rotate-grupp är inte minnesreferens.
+        if ((ir[5:2] == 4'o00) && !ir[0])
+            return 1'b0;
+
+        // Kodkommentar: Alter/skip-grupp är inte minnesreferens.
+        if ((ir[5:2] == 4'o00) && ir[0])
+            return 1'b0;
+
+        // Kodkommentar: I/O-grupp är inte minnesreferens.
+        if ((ir[5:2] == 4'o10) && ir[0])
+            return 1'b0;
+
+        // Kodkommentar: MAC/övriga specialgrupper behandlas här som ej minnesreferens.
+        if ((ir[5:2] == 4'o10) && !ir[0])
+            return 1'b0;
+
+        // Kodkommentar: Endast de riktiga minnesreferensinstruktionerna returnerar sant.
+        unique case (op4)
+            4'o02,  // AND
+            4'o03,  // JSB
+            4'o04,  // XOR
+            4'o05,  // JMP
+            4'o06,  // IOR
+            4'o07,  // ISZ
+            4'o10,  // ADA
+            4'o11,  // ADB
+            4'o12,  // CPA
+            4'o13,  // CPB
+            4'o14,  // LDA
+            4'o15,  // LDB
+            4'o16,  // STA
+            4'o17:  // STB
+                return 1'b1;
+            default:
+                return 1'b0;
+        endcase
+    end
+endfunction
+
+
+// Kodkommentar: Läs ett operandord på samma sätt som CPU:n gör i INDIRECT/EXECUTE T1.
+// Kodkommentar: Adress 0 betyder A-register och adress 1 betyder B-register.
+function automatic logic [15:0] read_operand_word(
+    input logic [14:0] addr,
+    input logic [15:0] a_val,
+    input logic [15:0] b_val
+);
+    begin
+        if (addr == 15'o00000)
+            return a_val;
+        else if (addr == 15'o00001)
+            return b_val;
+        else
+            return mem[addr];
+    end
+endfunction
+
+
+// Kodkommentar: Beräkna operandinformation för minnesreferensinstruktioner.
+// Kodkommentar: Returnerar
+// Kodkommentar:   "M=xxxxxx D=xxxxxx" för lyckad upplösning
+// Kodkommentar:   "M=ERROR  D=ERROR " vid fel i indirektionskedjan
+// Kodkommentar:   blanksträng för icke-minnesreferensinstruktioner
+function automatic string memref_info(
+    input logic [15:0] tr,
+    input logic [14:0] p_val,
+    input logic [15:0] a_val,
+    input logic [15:0] b_val
+);
+    logic        indirect;
+    logic        current_page;
+    logic [9:0]  off10;
+    logic [14:0] eff_addr;
+    logic [15:0] data_word;
+    int          level;
+
+    begin
+        // Kodkommentar: Returnera bara blankt fält om detta inte är en minnesreferensinstruktion.
+        if (!is_memref_instr(tr))
+            return blank_memref_info();
+
+        // Kodkommentar: Plocka ut instruktionsfälten.
+        indirect     = tr[15];
+        current_page = tr[10];
+        off10        = tr[9:0];
+
+        // Kodkommentar: Samma direktadressregel som i CPU:n:
+        // Kodkommentar: TR[10] = 1 => current page, annars zero page.
+        if (current_page)
+            eff_addr = {p_val[14:10], off10};
+        else
+            eff_addr = {5'b00000, off10};
+
+        // Kodkommentar: Följ indirektionskedjan upp till 10 nivåer.
+        for (level = 0; level < 10; level++) begin
+            data_word = read_operand_word(eff_addr, a_val, b_val);
+
+            // Kodkommentar: Om vi inte längre är indirekta är detta den slutliga operanden.
+            if (!indirect)
+                return $sformatf("M=%06o D=%06o", eff_addr, data_word);
+
+            // Kodkommentar: Nästa länk i kedjan tas från det hämtade ordet.
+            indirect = data_word[15];
+            eff_addr = data_word[14:0];
+        end
+
+        // Kodkommentar: Om vi fortfarande är indirekta efter 10 nivåer betraktas det som fel.
+        return "M=ERROR  D=ERROR ";
+    end
+endfunction
+
 // Kodkommentar: Skriv ut disassembly-strängen med tydliga avgränsare
 // Kodkommentar: så att dolda tecken blir lättare att upptäcka.
 always @(posedge clk) begin
     if (rst_n && dut.run_ff) begin
-        if ((dut.phase == 3'd0) && (dut.tstate == 3'd7)) begin
-            string a,b, dis;
+        if ((dut.phase == 3'd0) && (dut.tstate == 3'd2)) begin
+            string a,b, dis, meminfo;
             dis = $sformatf("%-20s", mini_disasm(dut.TR));
-
+            meminfo = memref_info(dut.TR, dut.P, dut.A, dut.B);
             a = $sformatf("%06o", dut.A);
             b = $sformatf("%06o", dut.B);
 
-            $display("TIME %020t  A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, a, b, dut.EXTEND, dut.OVERFLOW, dut.Interrupt_System_Enable, dut.P, dut.TR, dis);
+            $display("TIME %020t  %s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, meminfo, a, b, dut.EXTEND, dut.OVERFLOW, dut.Interrupt_System_Enable, dut.P, dut.TR, dis);
         end
     end
 end

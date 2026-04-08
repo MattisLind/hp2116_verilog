@@ -2,7 +2,7 @@
 
 module hp12531c #(
   parameter int unsigned CLOCK_HZ  = 50_000_000,
-  parameter int unsigned BAUD      = 1_250_000,
+  parameter int unsigned BAUD      = 625_000,
   parameter int unsigned STOP_BITS = 2
 ) (
   input  logic         clk,
@@ -166,9 +166,9 @@ module hp12531c #(
 
     assign shift_enable = ((inout_ff && in_phase_hit) || (~inout_ff && out_phase_hit));
 
-    assign iob_in[7:0] = shift_reg[8:1];
+    assign iob_in[7:0] = do_ioi ? shift_reg[9:2] : 8'h00;
     assign iob_in[14:8] = 7'h00;
-    assign iob_in[15] = clock_enable_ff;
+    assign iob_in[15] = clock_enable_ff & do_ioi;
     assign baudrategen_clock_enable = (baudrategen == 13'd4);
 
     assign uart_tx = ~ ((~shift_reg[0] & ~inout_ff & (print_ff | punch_ff)) | (~serial_in_or_flag & (print_ff | punch_ff) & inout_ff));
@@ -235,39 +235,39 @@ module hp12531c #(
         if (do_stc & inout_ff) read_ff <= 1'b1;
         else if (~uart_rx) read_ff <= 1'b0;
 
-        if (ioo & t3) shift_reg[10] <= 1'b1;
+        if (do_ioo & t3) shift_reg[10] <= 1'b1;
         else if (shift_enable & baudrategen_clock_enable) shift_reg[10] <= serial_in_or_flag;
 
-        if (ioo & t3) shift_reg[9] <= 1'b0;
-        else if (iob_out[7] & ioo) shift_reg[9] <= 1'b1;
+        if (do_ioo & t3) shift_reg[9] <= 1'b0;
+        else if (iob_out[7] & do_ioo) shift_reg[9] <= 1'b1;
         else if (shift_enable & baudrategen_clock_enable) shift_reg[9] <= shift_reg[10];
 
-        if (ioo & t3) shift_reg[8] <= 1'b0;
-        else if (iob_out[6] & ioo) shift_reg[8] <= 1'b1;
+        if (do_ioo & t3) shift_reg[8] <= 1'b0;
+        else if (iob_out[6] & do_ioo) shift_reg[8] <= 1'b1;
         else if (shift_enable & baudrategen_clock_enable) shift_reg[8] <= shift_reg[9];
 
-        if (ioo & t3) shift_reg[7] <= 1'b0;
-        else if (iob_out[5] & ioo) shift_reg[7] <= 1'b1;
+        if (do_ioo & t3) shift_reg[7] <= 1'b0;
+        else if (iob_out[5] & do_ioo) shift_reg[7] <= 1'b1;
         else if (shift_enable & baudrategen_clock_enable) shift_reg[7] <= shift_reg[8];            
 
-        if (ioo & t3) shift_reg[6] <= 1'b0;
-        else if (iob_out[4] & ioo) shift_reg[6] <= 1'b1;
+        if (do_ioo & t3) shift_reg[6] <= 1'b0;
+        else if (iob_out[4] & do_ioo) shift_reg[6] <= 1'b1;
         else if (shift_enable & baudrategen_clock_enable) shift_reg[6] <= shift_reg[7];            
 
-        if (ioo & t3) shift_reg[5] <= 1'b0;
-        else if (iob_out[3] & ioo) shift_reg[5] <= 1'b1;
+        if (do_ioo & t3) shift_reg[5] <= 1'b0;
+        else if (iob_out[3] & do_ioo) shift_reg[5] <= 1'b1;
         else if (shift_enable & baudrategen_clock_enable) shift_reg[5] <= shift_reg[6]; 
 
-        if (ioo & t3) shift_reg[4] <= 1'b0;
-        else if (iob_out[2] & ioo) shift_reg[4] <= 1'b1;
+        if (do_ioo & t3) shift_reg[4] <= 1'b0;
+        else if (iob_out[2] & do_ioo) shift_reg[4] <= 1'b1;
         else if (shift_enable & baudrategen_clock_enable) shift_reg[4] <= shift_reg[5]; 
 
-        if (ioo & t3) shift_reg[3] <= 1'b0;
-        else if (iob_out[1] & ioo) shift_reg[3] <= 1'b1;
+        if (do_ioo & t3) shift_reg[3] <= 1'b0;
+        else if (iob_out[1] & do_ioo) shift_reg[3] <= 1'b1;
         else if (shift_enable & baudrategen_clock_enable) shift_reg[3] <= shift_reg[4];   
 
-        if (ioo & t3) shift_reg[2] <= 1'b0;
-        else if (iob_out[0] & ioo) shift_reg[2] <= 1'b1;
+        if (do_ioo & t3) shift_reg[2] <= 1'b0;
+        else if (iob_out[0] & do_ioo) shift_reg[2] <= 1'b1;
         else if (shift_enable & baudrategen_clock_enable) shift_reg[2] <= shift_reg[3];  
 
         if (~clock_enable_ff) shift_reg[1] <= 1'b0;
