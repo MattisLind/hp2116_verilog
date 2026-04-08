@@ -98,7 +98,7 @@ module tb_hp2116;
     int i;
     begin
       // Kodkommentar: Beräkna bittiden i ns utifrån vald baudrate.
-      bit_time = 1_000_000_000ns / 1_250_000;
+      bit_time = 400ns;
 
       // Kodkommentar: Idle-nivån är hög.
       serial_line = 1'b1;
@@ -130,7 +130,7 @@ module tb_hp2116;
     int i;
     begin
       // Kodkommentar: Beräkna bittiden i ns utifrån vald baudrate.
-      bit_time = 1_000_000_000ns / 1_250_000;
+      bit_time = 400ns;
 
       // Kodkommentar: Vänta på startbit.
       @(negedge serial_line);
@@ -754,7 +754,7 @@ always @(posedge clk) begin
             a = $sformatf("%06o", dut.A);
             b = $sformatf("%06o", dut.B);
 
-            $display("TIME %020t  %s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, meminfo, a, b, dut.EXTEND, dut.OVERFLOW, dut.Interrupt_System_Enable, dut.P, dut.TR, dis);
+            //$display("TIME %020t  %s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, meminfo, a, b, dut.EXTEND, dut.OVERFLOW, dut.Interrupt_System_Enable, dut.P, dut.TR, dis);
         end
     end
 end
