@@ -49,7 +49,11 @@ module hp2116_cpu #(
   input  logic [15:0]  mem_rdata,
   output logic         mem_we,
   input  logic         uart_rx,
-  output logic         uart_tx  
+  output logic         uart_tx,
+  input  logic [7:0]   ptr_datain,
+  output logic [7:0]   ptr_dataout,  
+  input  logic         ptr_feedhole,
+  output logic         ptr_read  
 );
 
   //--------------------------------------------------------------------------
@@ -96,7 +100,7 @@ module hp2116_cpu #(
   logic irqh;
 
   logic [15:0] iob_out;
-  logic [15:0] iob_in, iob_in_internal;
+  logic [15:0] iob_in10, iob_in11, iob_in_internal, dummy;
 
   logic sir;
   logic enf;
@@ -107,6 +111,11 @@ module hp2116_cpu #(
   logic interrupt; 
 
   logic crs;
+  logic prl11;
+  logic irq11;
+  logic skf10;
+  logic skf11;
+
   assign run_ff = RUN;
   assign ien_ff = IEN;
 
@@ -132,7 +141,7 @@ hp12531c serial (
   .clk(clk),
   .crs(crs),
 
-  .prl(prl),
+  .prl(prl11),
   .flgl(flgl),
   .sfc(sfc),
   .irql(irq10),
@@ -141,7 +150,7 @@ hp12531c serial (
   .stf(stf),
   .iak(iak),
   .t3(t3),
-  .skf(skf),
+  .skf(skf10),
 
   .scm_l(msc1),
   .scl_l(lsc0),
@@ -164,7 +173,7 @@ hp12531c serial (
   .scm_h(1'b0),
 
   .iob_out(iob_out),
-  .iob_in(iob_in),
+  .iob_in(iob_in10),
 
   .sir(sir),
   .enf(enf),
@@ -179,6 +188,61 @@ hp12531c serial (
   .uart_rx(uart_rx),
   .uart_tx(uart_tx)  
 );
+
+hp12597a ptr (
+  .clk(clk),
+  .crs(crs),
+
+  .prl(prl),
+  .flgl(flgl11),
+  .sfc(sfc),
+  .irql(irq11),
+  .clf(clf),
+  .ien(Interrupt_System_Enable),
+  .stf(stf),
+  .iak(iak),
+  .t3(t3),
+  .skf(skf11),
+
+  .scm_l(msc1),
+  .scl_l(lsc1),
+
+  .iog(is_io_instr),
+  .popio(popio),
+
+  .iob16_or_bios_n(1'b0),
+
+  .srq(srq),
+  .ioo(ioo),
+  .clc(clc),
+  .stc(stc),
+  .prh(prl11),
+  .ioi(ioi),
+  .sfs(sfs),
+
+  .irqh(irqh),
+  .scl_h(1'b0),
+  .scm_h(1'b0),
+
+  .iob_out(iob_out),
+  .iob_in(iob_in11),
+
+  .sir(sir),
+  .enf(enf),
+  .flgh(flgh),
+
+  .run(RUN),
+
+  .edt(edt),
+  .pon(pon),
+  .bioo_n(1'b0),
+  .sfsb_or_bioi_n(1'b0),
+  .datain(ptr_datain),
+  .dataout(ptr_dataout),  
+  .feedhole(ptr_feedhole),
+  .read(ptr_read) 
+);
+
   //--------------------------------------------------------------------------
   // Helper: next T-state
   //--------------------------------------------------------------------------
@@ -289,7 +353,7 @@ hp12531c serial (
     sfs_intp = sfs & msc0 & lsc0 & Interrupt_System_Enable;
     sfc_intp = sfc & msc0 & lsc0 & ~Interrupt_System_Enable;
     skip_intp = sfc_intp | sfs_intp;
-    skip_io = skf | skip_intp;
+    skip_io = skf10 | skf11 | skip_intp ;
     clf = clear_flag & (tstate == T4);
     stf = set_flag & (tstate == T3);
     stc = set_control & (tstate == T4);
@@ -314,7 +378,7 @@ always @* begin
         endcase
     end
     else begin
-      iob_in_internal = iob_in;
+      iob_in_internal = iob_in10 | iob_in11;
     end
 end
 

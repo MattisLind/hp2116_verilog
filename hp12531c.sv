@@ -162,7 +162,7 @@ module hp12531c #(
 
     // Stoppvillkor från gamla logiken: när D, E och G är sanna ska kedjan resetas.
     // I den synkrona versionen stoppar vi sekvensen och återställer fasräknaren.
-    assign stop_condition = D && E && G;
+    assign stop_condition = E && G;
 
     assign shift_enable = ((inout_ff && in_phase_hit) || (~inout_ff && out_phase_hit));
 

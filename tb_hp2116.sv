@@ -39,10 +39,14 @@ module tb_hp2116;
   logic [16-1:0] mem [0:MEM_WORDS-1];
   logic uart_rx;
   logic uart_tx;
+  logic [7:0] ptr_datain;
+  logic [7:0] ptr_dataout;  
+  logic ptr_feedhole;
+  logic ptr_read;    
 
   // CPU instance
   hp2116_cpu #(
-  ) dut (
+  ) cpu (
     .clk(clk),
     .rst_n(rst_n),
 
@@ -67,7 +71,11 @@ module tb_hp2116;
     .mem_we(mem_we),
 
     .uart_rx(uart_rx),
-    .uart_tx(uart_tx)
+    .uart_tx(uart_tx),
+    .ptr_datain(ptr_datain),
+    .ptr_dataout(ptr_dataout),  
+    .ptr_feedhole(ptr_feedhole),
+    .ptr_read(ptr_read)     
   );
 
   // Clock
@@ -743,18 +751,127 @@ function automatic string memref_info(
     end
 endfunction
 
+// Kodkommentar: Ta emot exakt en sträng från DUT över UART.
+// Kodkommentar: Varje mottagen byte jämförs direkt mot förväntad text.
+task automatic uart_expect_string(
+    ref logic serial_line,
+    input string expected
+);
+    logic [7:0] ch;
+    int i;
+    begin
+        for (i = 0; i < expected.len(); i++) begin
+            uart_recv_byte(serial_line, ch);
+
+            if (ch !== expected[i]) begin
+                $error("UART string mismatch at index %0d: expected 0x%02h ('%s') got 0x%02h ('%s') at time %0t",
+                       i,
+                       expected[i],
+                       (expected[i] >= 8'h20 && expected[i] <= 8'h7e) ? {byte'(expected[i])} : ".",
+                       ch,
+                       (ch >= 8'h20 && ch <= 8'h7e) ? {byte'(ch)} : ".",
+                       $time);
+                return;
+            end
+        end
+
+        $display("UART RX matched string: \"%s\" at time %0t", expected, $time);
+    end
+endtask
+
+
+// Kodkommentar: Skicka en hel sträng till DUT över UART.
+// Kodkommentar: Mellan varje tecken väntar vi en programmerbar extra fördröjning.
+task automatic uart_send_string(
+    ref logic serial_line,
+    input string text,
+    input time inter_char_delay
+);
+    int i;
+    logic [7:0] ch;
+    begin
+        for (i = 0; i < text.len(); i++) begin
+            ch = text[i][7:0];
+            uart_send_byte( ch, serial_line);
+
+            // Kodkommentar: Extra paus mellan tecken om så önskas.
+            if (inter_char_delay != 0)
+                #(inter_char_delay);
+        end
+    end
+endtask
+
+
+// Kodkommentar: Vänta på en prompt från DUT och skicka sedan ett svar.
+task automatic uart_expect_and_respond(
+    ref logic dut_tx,
+    ref logic tb_rx,
+    input string expected_prompt,
+    input string response,
+    input time inter_char_delay,
+    input time after_match_delay
+);
+    begin
+        uart_expect_string(dut_tx, expected_prompt);
+        if (after_match_delay != 0)
+            #(after_match_delay);
+        $display("UART sending response: \"%s\" at time %0t", response, $time);
+        uart_send_string(tb_rx, response, inter_char_delay);
+    end
+endtask
+
+
+
+initial begin
+    // Kodkommentar: Vänta tills reset är släppt.
+    wait (rst_n == 1'b1);
+
+    // Kodkommentar: Första tomraden.
+    // uart_expect_string(uart_tx, "\r\n");
+
+    // Kodkommentar: Konfigurationsraden.
+    // uart_expect_string(uart_tx, "2116, NO DMA, NO MPRT, 32K MEMORY\r\n");
+
+    // Kodkommentar: Andra tomraden.
+    // uart_expect_string(uart_tx, "\r\n");
+
+    // Kodkommentar: Vänta på prompten och svara.
+    // Kodkommentar: Exempelresponsen här är bara ett exempel — byt till det
+    // Kodkommentar: exakt svar som diagnostikprogrammet förväntar sig.
+    uart_expect_and_respond(
+        uart_tx,
+        uart_rx,
+        "\r\n2116, NO DMA, NO MPRT, 32K MEMORY\r\n\r\nLINE PRINTER (NO.,SC)........",
+        "NONE\r",
+        4_000ns,
+        20_000ns
+    );
+
+    uart_expect_and_respond(
+        uart_tx,
+        uart_rx,
+        "\r\n\r\nDIAG. INPUT DEVICE (NO.,SC)..",
+        "2748,11\r",
+        4_000ns,
+        20_000ns
+    );
+
+    $display("Finished scripted UART exchange at time %0t", $time);
+end
+
+
 // Kodkommentar: Skriv ut disassembly-strängen med tydliga avgränsare
 // Kodkommentar: så att dolda tecken blir lättare att upptäcka.
 always @(posedge clk) begin
-    if (rst_n && dut.run_ff) begin
-        if ((dut.phase == 3'd0) && (dut.tstate == 3'd2)) begin
+    if (rst_n && cpu.run_ff) begin
+        if ((cpu.phase == 3'd0) && (cpu.tstate == 3'd2)) begin
             string a,b, dis, meminfo;
-            dis = $sformatf("%-20s", mini_disasm(dut.TR));
-            meminfo = memref_info(dut.TR, dut.P, dut.A, dut.B);
-            a = $sformatf("%06o", dut.A);
-            b = $sformatf("%06o", dut.B);
+            dis = $sformatf("%-20s", mini_disasm(cpu.TR));
+            meminfo = memref_info(cpu.TR, cpu.P, cpu.A, cpu.B);
+            a = $sformatf("%06o", cpu.A);
+            b = $sformatf("%06o", cpu.B);
 
-            //$display("TIME %020t  %s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, meminfo, a, b, dut.EXTEND, dut.OVERFLOW, dut.Interrupt_System_Enable, dut.P, dut.TR, dis);
+            $display("TIME %020t  %s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, meminfo, a, b, cpu.EXTEND, cpu.OVERFLOW, cpu.Interrupt_System_Enable, cpu.P, cpu.TR, dis);
         end
     end
 end
@@ -820,12 +937,12 @@ end
   end
 
   // Övervaka när CPU:n stannar
-  always @(negedge dut.run_ff) begin
+  always @(negedge cpu.run_ff) begin
       // Rapportera CPU-status vid halt
       $display("TIME %0t: CPU HALTED P=%06o IR=%06o TR=%06o A=%06o B=%06o",
-              $time, dut.P, dut.IR, dut.TR, dut.A, dut.B);
+              $time, cpu.P, cpu.IR, cpu.TR, cpu.A, cpu.B);
 
-      if (dut.P == 16'o000445) begin
+      if (cpu.P == 16'o000445) begin
           // Vänta lite så att haltläget hinner stabiliseras
           #1;
 
@@ -840,7 +957,7 @@ end
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
       end
-      if (dut.P == 16'o000452) begin
+      if (cpu.P == 16'o000452) begin
           // Vänta lite så att haltläget hinner stabiliseras
           #1;
 
