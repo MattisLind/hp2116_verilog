@@ -905,7 +905,8 @@ end
                     4'o02: // AND - And to A
                       A <= A & TR;
                     4'o03: //JSB - Jump to subroutine 
-                      mem_we <= 1'b1;
+                      if ((M!= 15'o00000) && (M!= 15'o00001)) 
+                        mem_we <= 1'b1;
                     4'o04: // XOR
                       A <= A ^ TR;                     
                     4'o05: // JMP - Jump is handled in FETCH.
@@ -915,7 +916,8 @@ end
                     4'o06: // IOR - Inclusive OR
                       A <= A | TR;
                     4'o07:  // ISZ - Inrement memory and skip if zero
-                      mem_we <= 1'b1; 
+                      if ((M!= 15'o00000) && (M!= 15'o00001)) 
+                        mem_we <= 1'b1;
                     4'o10: // ADA - Add to A
                     begin
                       add_sum = {1'b0, A} + {1'b0, TR};
@@ -945,14 +947,18 @@ end
                     4'o15: // LDB - Load B from memory
                       B <= TR;
                     4'o16:
-                      mem_we <= 1'b1;
+                      if ((M!= 15'o00000) && (M!= 15'o00001)) 
+                        mem_we <= 1'b1;
                     4'o17:
-                      mem_we <= 1'b1;
+                      if ((M!= 15'o00000) && (M!= 15'o00001)) 
+                        mem_we <= 1'b1;
                   endcase
                 end
                 T4: begin
                   if (op4 == 4'o16 | op4 == 4'o17 | op4 == 4'o07 || op4 == 4'o03)
                     mem_we <= 1'b0;
+                  if (M== 15'o00000) A <= TR;
+                  if (M== 15'o00001) B <= TR;
                 end
                 T5: begin
                   if (op4 == 4'o07)

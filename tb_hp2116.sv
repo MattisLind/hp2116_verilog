@@ -371,6 +371,7 @@ module tb_hp2116;
     end else begin
       $display("ABS loader: loaded 0 words");
     end
+    //mem[15'o4274] = 16'o002002;
   endtask
 function automatic string fmt_mem_operand(input logic [15:0] tr);
     logic indirect;
@@ -856,6 +857,15 @@ initial begin
         20_000ns
     );
 
+
+    uart_expect_and_respond(
+        uart_tx,
+        uart_rx,
+        "\r\n\r\nREADY DIAG. INPUT DEVICE\r\n\r\nDSN(,SEQ.DIAG.EXECUT.).......",
+        "101100\r",
+        4_000ns,
+        20_000ns
+    );
     $display("Finished scripted UART exchange at time %0t", $time);
 end
 
@@ -871,7 +881,7 @@ always @(posedge clk) begin
             a = $sformatf("%06o", cpu.A);
             b = $sformatf("%06o", cpu.B);
 
-            $display("TIME %020t  %s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, meminfo, a, b, cpu.EXTEND, cpu.OVERFLOW, cpu.Interrupt_System_Enable, cpu.P, cpu.TR, dis);
+            //$display("TIME %020t  %s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, meminfo, a, b, cpu.EXTEND, cpu.OVERFLOW, cpu.Interrupt_System_Enable, cpu.P, cpu.TR, dis);
         end
     end
 end
