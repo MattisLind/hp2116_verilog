@@ -612,7 +612,12 @@ end
 
                 T1: begin
                   // Kodkommentar: Synkron minnesmodell - instruktionen läses in i T.
-                  TR <= mem_rdata;
+                  if (M== 15'o00000) 
+                    TR <= A;
+                  else if (M== 15'o00001)
+                    TR <= B;
+                  else
+                    TR <= mem_rdata;
                 end
 
                 T2: begin
@@ -922,15 +927,15 @@ end
                     begin
                       add_sum = {1'b0, A} + {1'b0, TR};
                       A <= add_sum[15:0];
-                      EXTEND <= add_sum[16];
-                      OVERFLOW <= (~(A[15] ^ TR[15])) & (A[15] ^ add_sum[15]);
+                      if (add_sum[16] == 1'b1) EXTEND <= 1'b1;
+                      if (((~(A[15] ^ TR[15])) & (A[15] ^ add_sum[15])) == 1'b1) OVERFLOW <= 1'b1;
                     end
                     4'o11: // ADB - Add to B
                     begin
                       add_sum = {1'b0, B} + {1'b0, TR};
                       B <= add_sum[15:0];
-                      EXTEND <= add_sum[16];
-                      OVERFLOW <= (~(B[15] ^ TR[15])) & (B[15] ^ add_sum[15]);
+                      if (add_sum[16] == 1'b1) EXTEND <= 1'b1;
+                      if (((~(B[15] ^ TR[15])) & (B[15] ^ add_sum[15])) == 1'b1) OVERFLOW <= 1'b1;                      
                     end
                     4'o12: // CPA - Compare A to memory - skip if not identical
                       begin
@@ -955,10 +960,11 @@ end
                   endcase
                 end
                 T4: begin
-                  if (op4 == 4'o16 | op4 == 4'o17 | op4 == 4'o07 || op4 == 4'o03)
+                  if (op4 == 4'o16 | op4 == 4'o17 | op4 == 4'o07 || op4 == 4'o03) begin
                     mem_we <= 1'b0;
-                  if (M== 15'o00000) A <= TR;
-                  if (M== 15'o00001) B <= TR;
+                    if (M== 15'o00000) A <= TR;
+                    if (M== 15'o00001) B <= TR;
+                  end 
                 end
                 T5: begin
                   if (op4 == 4'o07)

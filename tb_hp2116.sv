@@ -906,7 +906,7 @@ always @(posedge clk) begin
             a = $sformatf("%06o", cpu.A);
             b = $sformatf("%06o", cpu.B);
 
-            //$display("TIME %020t  %s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, meminfo, a, b, cpu.EXTEND, cpu.OVERFLOW, cpu.Interrupt_System_Enable, cpu.P, cpu.TR, dis);
+            $display("TIME %020t  %s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, meminfo, a, b, cpu.EXTEND, cpu.OVERFLOW, cpu.Interrupt_System_Enable, cpu.P, cpu.TR, dis);
         end
     end
 end
@@ -986,11 +986,11 @@ end
     pulse_btn(disp_mem_btn);
 
     // LOAD A with switches
-    sw = 16'o055555;
+    sw = 16'o000000;
     pulse_btn(load_a_btn);
     
-    // LOAD A with switches
-    sw = 16'o122222;
+    // LOAD B with switches
+    sw = 16'o000000;
     pulse_btn(load_b_btn);    
 
    // Example: set address via switches and LOAD ADDRESS
@@ -1001,7 +1001,7 @@ end
     // Enable single-cycle mode and do two phase-steps
     //pulse_btn(single_cycle_btn); // enter single mode + arm one phase
     pulse_btn(run_btn);          // RUN
-    repeat (50000000) @(posedge clk);  // CPU will advance one phase and stop (armed consumed)
+    repeat (200000000) @(posedge clk);  // CPU will advance one phase and stop (armed consumed)
 
     //pulse_btn(single_cycle_btn); // arm another phase
     repeat (50) @(posedge clk);
@@ -1048,7 +1048,27 @@ end
           // Starta CPU:n igen
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
-      end      
+      end 
+      if (cpu.P == 16'o077237) begin
+          // Vänta lite så att haltläget hinner stabiliseras
+          #1;
+
+          // Lägg in värdet i switchregistret
+          pulse_btn(preset_btn);
+          sw = 16'o000100;
+          pulse_btn(load_addr_btn);
+          sw = 16'o000000;
+          pulse_btn(load_a_btn);
+          pulse_btn(load_b_btn);
+          pulse_btn(run_btn);
+
+          // Vänta lite innan run-knappen pulsas
+          #1;
+
+          // Starta CPU:n igen
+          pulse_btn(run_btn);
+          $display("TIME %0t: Pulsed run button", $time);
+      end            
   end
 
 endmodule
