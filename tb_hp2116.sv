@@ -42,7 +42,14 @@ module tb_hp2116;
   logic [7:0] ptr_datain;
   logic [7:0] ptr_dataout;  
   logic ptr_feedhole;
-  logic ptr_read;    
+  logic ptr_read; 
+
+    // Kodkommentar: Filhandtag och temporärvariabel för pappersremsläsaren.
+  integer ptr_fd;
+  integer ptr_c;
+
+  // Kodkommentar: Standardfil för pappersremsan. Kan överskuggas med +PTR_FILE=...
+  string ptr_filename;   
 
   // CPU instance
   hp2116_cpu #(
@@ -189,6 +196,24 @@ module tb_hp2116;
                $time);
     end
   end
+
+
+  // Kodkommentar: Mata in en byte till den simulerade pappersremsläsaren.
+  // Kodkommentar: Datan görs stabil före feedhole och feedhole hålls aktiv över
+  // Kodkommentar: en positiv klockkant så att DUT säkert latchar byten.
+  task automatic ptr_feed_byte(input logic [7:0] value);
+    begin
+      ptr_datain = value;
+
+      // Kodkommentar: Gör datan stabil före aktiv samplingskant.
+      @(negedge clk);
+      ptr_feedhole = 1'b1;
+
+      // Kodkommentar: Håll feedhole aktiv över en positiv flank.
+      @(negedge clk);
+      ptr_feedhole = 1'b0;
+    end
+  endtask
 
   // ------------------------------------------------------------
   // Utility: drive a clean 1-cycle pulse for a button
@@ -887,6 +912,47 @@ always @(posedge clk) begin
 end
 
 
+  // Kodkommentar: Simulerad HP12597A-pappersremsläsare som matar byten från fil.
+  // Kodkommentar: När interfacet sätter READ aktivt läses nästa byte från filen
+  // Kodkommentar: och FEEDHOLE pulsas så att interfacet latchar datan.
+  initial begin : paper_tape_reader
+    ptr_datain   = 8'h00;
+    ptr_feedhole = 1'b0;
+
+    // Kodkommentar: Tillåt att filnamnet skickas in som plusarg:
+    // Kodkommentar:   +PTR_FILE=min_tape.bin
+    if (!$value$plusargs("PTR_FILE=%s", ptr_filename))
+      ptr_filename = "paper_tape.bin";
+
+    ptr_fd = $fopen(ptr_filename, "rb");
+    if (ptr_fd == 0) begin
+      $display("PTR: no tape file opened (%s). Reader simulator disabled.", ptr_filename);
+      disable paper_tape_reader;
+    end
+
+    $display("PTR: opened tape file %s", ptr_filename);
+
+    forever begin
+      // Kodkommentar: Vänta tills läsaren begär nästa tecken.
+      @(posedge ptr_read);
+
+      // Kodkommentar: Läs nästa byte ur värdfilen.
+      ptr_c = $fgetc(ptr_fd);
+
+      if (ptr_c < 0) begin
+        $display("PTR: EOF on %s at time %0t", ptr_filename, $time);
+
+        // Kodkommentar: Vid EOF matar vi inte fler byten.
+        disable paper_tape_reader;
+      end
+
+      $display("PTR: byte %03o (0x%02h) at time %0t",
+               ptr_c[7:0], ptr_c[7:0], $time);
+
+      ptr_feed_byte(ptr_c[7:0]);
+    end
+  end
+
   // ------------------------------------------------------------
   // Test sequence demonstrating panel operations
   // ------------------------------------------------------------
@@ -895,7 +961,8 @@ end
     rst_n = 1'b0;
     sw = 16'o000000;
     uart_rx = 1'b1;
-
+    ptr_datain = 8'h00;
+    ptr_feedhole = 1'b0;
     preset_btn = 0; run_btn = 0; halt_btn = 0;
     load_mem_btn = 0; load_a_btn = 0; load_b_btn = 0;
     load_addr_btn = 0; disp_mem_btn = 0; single_cycle_btn = 0;

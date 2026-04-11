@@ -120,9 +120,9 @@ module hp12597a #(
     irql = irq_ff;
 
     prl  = prh & ~(flag_ff & ien & control_ff);
-
+    iob_in = 16'h0000;
     edt  = 1'b0;
-    if (do_ioo) iob_in [7:0] = datainreg;
+    if (do_ioi) iob_in [7:0] = datainreg;
 
   end
 
