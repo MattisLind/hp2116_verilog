@@ -9,5 +9,5 @@ docker run --rm -it \
       --sv --timing --binary --trace-fst \
       tb_hp2116.sv hp2116_cpu.sv hp12531c.sv hp12597a.sv \
       --top-module tb_hp2116 && \
-    ./obj_dir/Vtb_hp2116 +PTR_FILE=24396-1.abs
+    ./obj_dir/Vtb_hp2116 +PTR_FILE=24396-13601_file3_with_trailer.abin
   '

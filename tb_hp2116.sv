@@ -887,7 +887,7 @@ initial begin
         uart_tx,
         uart_rx,
         "\r\n\r\nREADY DIAG. INPUT DEVICE\r\n\r\nDSN(,SEQ.DIAG.EXECUT.).......",
-        "101100\r",
+        "101002\r",
         4_000ns,
         20_000ns
     );
@@ -1001,7 +1001,7 @@ end
     // Enable single-cycle mode and do two phase-steps
     //pulse_btn(single_cycle_btn); // enter single mode + arm one phase
     pulse_btn(run_btn);          // RUN
-    repeat (200000000) @(posedge clk);  // CPU will advance one phase and stop (armed consumed)
+    repeat (300000000) @(posedge clk);  // CPU will advance one phase and stop (armed consumed)
 
     //pulse_btn(single_cycle_btn); // arm another phase
     repeat (50) @(posedge clk);

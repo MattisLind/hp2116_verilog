@@ -382,7 +382,7 @@ always @* begin
     end
 end
 
-  task automatic do_shift_rotate(input logic [2:0] op);
+  task automatic do_shift_rotate(input logic [2:0] op, input logic store);
   begin
     unique case (op)
       3'o0: begin // left shift
@@ -417,21 +417,21 @@ end
         end 
       3'o5: begin // rotate E right with register
           if (TR[11] == 0) begin
-            A <= {EXTEND, A[15:1]};
+            if (store) A <= {EXTEND, A[15:1]};
             EXTEND <= A[0];
           end
           else begin
-            B <= {EXTEND, B[15:1]};
+            if (store) B <= {EXTEND, B[15:1]};
             EXTEND <= B[0];
           end       
         end 
       3'o6: begin  // rotate E left with register
           if (TR[11] == 0) begin
-            A <= { A[14:0], EXTEND};
+            if (store) A <= { A[14:0], EXTEND};
             EXTEND <= A[15];
           end
           else begin
-            B <= {B[14:0], EXTEND};
+            if (store) B <= {B[14:0], EXTEND};
             EXTEND <= B[15];
           end            
         end
@@ -634,8 +634,11 @@ end
                     OVERFLOW <= 1'b1;
                   end  
                   if (is_srg_instr & TR[9]) begin
-                    do_shift_rotate(TR[8:6]);
-                  end  
+                    do_shift_rotate(TR[8:6],1'b1);
+                  end 
+                  if  (is_srg_instr & ~TR[9] & ((TR[8:6] == 3'o5) || (TR[8:6] == 3'o6))) begin
+                    do_shift_rotate(TR[8:6],1'b0);
+                  end
                   if (is_asg_instr) begin
                     if (TR[11] == 1'b0)
                       unique case (TR[9:8])
@@ -707,7 +710,10 @@ end
                       else begin
                         if (B == 16'o177777) begin
                           EXTEND <= 1'b1;
-                        end                        
+                        end 
+                        if (B == 16'o077777) begin
+                          OVERFLOW <= 1'b1;
+                        end                                               
                         B <= B + 16'o000001;
                       end
 
@@ -745,8 +751,11 @@ end
 
                 T5: begin
                   if (is_srg_instr & TR[4]) begin
-                    do_shift_rotate(TR[2:0]);
+                    do_shift_rotate(TR[2:0], 1'b1);
                   end  
+                  if  (is_srg_instr & ~TR[4] & ((TR[2:0] == 3'o5) || (TR[2:0] == 3'o6))) begin
+                    do_shift_rotate(TR[2:0],1'b0);
+                  end                  
                   if (is_asg_instr & TR[1]) begin
                       if (TR[11] == 1'b0) begin
                         if (A == 16'o000000 & ~TR[0] || A!=16'o000000 & TR[0]) 
