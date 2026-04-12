@@ -5,7 +5,7 @@ module hp12597a #(
   input  logic         clk,
   input  logic         crs,
 
-  // Kodkommentar: Prioritets- och flaggkedja mot bakplanet.
+  // Priority and flag chain toward the backplane.
   output logic         prl,
   output logic         flgl,
   input  logic         sfc,
@@ -17,14 +17,14 @@ module hp12597a #(
   input  logic         t3,
   output logic         skf,
 
-  // Kodkommentar: Select code för nedre adresshalvan. 12531C använder dessa.
+  // Select code for the lower address half. These are used by the interface.
   input  logic         scm_l,
   input  logic         scl_l,
 
   input  logic         iog,
   input  logic         popio,
 
-  // Kodkommentar: Specialsignal från bussarket. Används inte i denna första modell.
+  // Special signal from the bus sheet. Not used in this first model.
   input  logic         iob16_or_bios_n,
 
   output logic         srq,
@@ -35,7 +35,7 @@ module hp12597a #(
   input  logic         ioi,
   input  logic         sfs,
 
-  // Kodkommentar: Högre select code används inte av 12531C men finns i kontakten.
+  // The higher select code is not used by the interface but is present on the connector.
   input  logic         irqh,
   input  logic         scl_h,
   input  logic         scm_h,
@@ -54,7 +54,7 @@ module hp12597a #(
   input  logic         bioo_n,
   input  logic         sfsb_or_bioi_n,
   input  logic [7:0]   datain,
-  output logic [7:0]   dataout,  
+  output logic [7:0]   dataout,
   input  logic         feedhole,
   output logic         read
 
@@ -79,7 +79,7 @@ module hp12597a #(
   logic        flag_ff;
   logic        flag_buffer_ff;
   logic        control_ff;
-  logic        inout_ff;      
+  logic        inout_ff;
   logic        print_ff;
   logic        punch_ff;
   logic        irq_ff;
@@ -87,10 +87,8 @@ module hp12597a #(
   logic [7:0]  dataoutreg;
   logic [7:0]  datainreg;
 
-
-
   always_comb begin
-    // Kodkommentar: 12597A använder endast nedre select code.
+    // The 12597A uses only the lower select code.
     sel_l  = iog && scm_l && scl_l;
 
     do_ioi = sel_l && ioi;
@@ -103,19 +101,18 @@ module hp12597a #(
     do_sfc = sel_l && sfc;
   end
 
-
   //--------------------------------------------------------------------------
   // Backplane outputs
   //--------------------------------------------------------------------------
   always_comb begin
-    // Kodkommentar: I denna första modell driver vi bara lägre flagglinje.
+    // In this first model only the lower flag line is driven.
     flgl = irq_ff;
     flgh = 1'b0;
 
-    // Kodkommentar: Skip-ledningen drivs endast när kortet är valt.
+    // The skip line is driven only when the card is selected.
     skf  = (do_sfs && flag_ff) || (do_sfc && !flag_ff);
 
-    // Kodkommentar: Service request / interrupt request från kortet.
+    // Service request / interrupt request from the card.
     srq  = flag_ff;
     irql = irq_ff;
 

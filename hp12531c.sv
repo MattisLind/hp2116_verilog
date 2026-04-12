@@ -8,7 +8,7 @@ module hp12531c #(
   input  logic         clk,
   input  logic         crs,
 
-  // Kodkommentar: Prioritets- och flaggkedja mot bakplanet.
+  // Priority and flag chain toward the backplane.
   output logic         prl,
   output logic         flgl,
   input  logic         sfc,
@@ -20,14 +20,14 @@ module hp12531c #(
   input  logic         t3,
   output logic         skf,
 
-  // Kodkommentar: Select code för nedre adresshalvan. 12531C använder dessa.
+  // Select code for the lower address half. These are used by the interface.
   input  logic         scm_l,
   input  logic         scl_l,
 
   input  logic         iog,
   input  logic         popio,
 
-  // Kodkommentar: Specialsignal från bussarket. Används inte i denna första modell.
+  // Special signal from the bus sheet. Not used in this first model.
   input  logic         iob16_or_bios_n,
 
   output logic         srq,
@@ -38,7 +38,7 @@ module hp12531c #(
   input  logic         ioi,
   input  logic         sfs,
 
-  // Kodkommentar: Högre select code används inte av 12531C men finns i kontakten.
+  // The higher select code is not used by the interface but is present on the connector.
   input  logic         irqh,
   input  logic         scl_h,
   input  logic         scm_h,
@@ -57,7 +57,7 @@ module hp12531c #(
   input  logic         bioo_n,
   input  logic         sfsb_or_bioi_n,
   input  logic         uart_rx,
-  output logic         uart_tx  
+  output logic         uart_tx
 );
 
   //--------------------------------------------------------------------------
@@ -79,7 +79,7 @@ module hp12531c #(
   logic        flag_ff;
   logic        flag_buffer_ff;
   logic        control_ff;
-  logic        inout_ff;      
+  logic        inout_ff;
   logic        print_ff;
   logic        punch_ff;
   logic        irq_ff;
@@ -93,14 +93,13 @@ module hp12531c #(
   logic [6:0]   phase_cnt;
   logic [10:0]  shift_reg;
   logic in_phase_hit;
-  logic out_phase_hit;  
-  logic stop_condition;  
+  logic out_phase_hit;
+  logic stop_condition;
   logic  shift_enable;
   logic baudrategen_clock_enable;
 
-
   always_comb begin
-    // Kodkommentar: 12531C använder endast nedre select code.
+    // The 12531C uses only the lower select code.
     sel_l  = iog && scm_l && scl_l;
 
     do_ioi = sel_l && ioi;
@@ -113,34 +112,31 @@ module hp12531c #(
     do_sfc = sel_l && sfc;
   end
 
-
   //--------------------------------------------------------------------------
   // Backplane outputs
   //--------------------------------------------------------------------------
   always_comb begin
-    // Kodkommentar: I denna första modell driver vi bara lägre flagglinje.
+    // In this first model only the lower flag line is driven.
     flgl = irq_ff;
     flgh = 1'b0;
 
-    // Kodkommentar: Skip-ledningen drivs endast när kortet är valt.
+    // The skip line is driven only when the card is selected.
     skf  = (do_sfs && flag_ff) || (do_sfc && !flag_ff);
 
-    // Kodkommentar: Service request / interrupt request från kortet.
+    // Service request / interrupt request from the card.
     srq  = flag_ff;
     irql = irq_ff;
 
     prl  = prh & ~(flag_ff & ien & control_ff);
 
-
-
-    // Kodkommentar: EDT används inte i denna modell.
+    // EDT is not used in this model.
     edt  = 1'b0;
 
     serial_in_or_flag = uart_rx | flag_ff;
 
   end
 
-    // Koppla ut de gamla stegnamnen till den synkrona räknaren
+    // Map the old step names onto the synchronous counter
     assign A = phase_cnt[0];
     assign B = phase_cnt[1];
     assign C = phase_cnt[2];
@@ -149,19 +145,18 @@ module hp12531c #(
     assign F = phase_cnt[5];
     assign G = phase_cnt[6];
 
-
-    // IN-klockan kommer från Q på steg C.
-    // Det motsvarar en puls när C går 0->1.
-    // I en synkron räknare händer det när de gamla lägsta tre bitarna är 011.
+    // The IN clock comes from Q on step C.
+    // That corresponds to a pulse when C goes 0->1.
+    // In a synchronous counter this happens when the previous lowest three bits are 011.
     assign in_phase_hit = (phase_cnt[2:0] == 3'b011);
 
-    // OUT-klockan kommer från /Q på steg C.
-    // Det motsvarar en puls när /C går 0->1, alltså när C går 1->0.
-    // I en synkron räknare händer det när de gamla lägsta tre bitarna är 111.
+    // The OUT clock comes from /Q on step C.
+    // That corresponds to a pulse when /C goes 0->1, meaning C goes 1->0.
+    // In a synchronous counter this happens when the previous lowest three bits are 111.
     assign out_phase_hit = (phase_cnt[2:0] == 3'b111);
 
-    // Stoppvillkor från gamla logiken: när D, E och G är sanna ska kedjan resetas.
-    // I den synkrona versionen stoppar vi sekvensen och återställer fasräknaren.
+    // Stop condition from the old logic: when D, E, and G are true, the chain resets.
+    // In the synchronous version the sequence stops and the phase counter is reset.
     assign stop_condition = E && G;
 
     assign shift_enable = ((inout_ff && in_phase_hit) || (~inout_ff && out_phase_hit));
@@ -211,11 +206,9 @@ module hp12531c #(
         if (do_clc) control_ff <= 1'b0;
         if (do_stc) control_ff <= 1'b1;
 
-
         if (do_ioo & iob_out[15]) inout_ff <= iob_out[14];
         if (do_ioo & iob_out[15]) print_ff <= iob_out[13];
         if (do_ioo & iob_out[15]) punch_ff <= iob_out[12];
-
 
         if (stop_condition & t3) counter_reset_ff <= 1'b0;
         else if (enf) counter_reset_ff <= 1'b1;
@@ -226,7 +219,7 @@ module hp12531c #(
             phase_cnt <= phase_cnt + 7'd1;
         end
 
-        if (baudrategen_clock_enable) baudrategen <= 13'd0;    
+        if (baudrategen_clock_enable) baudrategen <= 13'd0;
         else baudrategen <= baudrategen + 13'd1;
 
         if ((do_stc & ~inout_ff) || (~serial_in_or_flag & inout_ff)) clock_enable_ff <= 1'b1;
@@ -248,33 +241,33 @@ module hp12531c #(
 
         if (do_ioo & t3) shift_reg[7] <= 1'b0;
         else if (iob_out[5] & do_ioo) shift_reg[7] <= 1'b1;
-        else if (shift_enable & baudrategen_clock_enable) shift_reg[7] <= shift_reg[8];            
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[7] <= shift_reg[8];
 
         if (do_ioo & t3) shift_reg[6] <= 1'b0;
         else if (iob_out[4] & do_ioo) shift_reg[6] <= 1'b1;
-        else if (shift_enable & baudrategen_clock_enable) shift_reg[6] <= shift_reg[7];            
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[6] <= shift_reg[7];
 
         if (do_ioo & t3) shift_reg[5] <= 1'b0;
         else if (iob_out[3] & do_ioo) shift_reg[5] <= 1'b1;
-        else if (shift_enable & baudrategen_clock_enable) shift_reg[5] <= shift_reg[6]; 
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[5] <= shift_reg[6];
 
         if (do_ioo & t3) shift_reg[4] <= 1'b0;
         else if (iob_out[2] & do_ioo) shift_reg[4] <= 1'b1;
-        else if (shift_enable & baudrategen_clock_enable) shift_reg[4] <= shift_reg[5]; 
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[4] <= shift_reg[5];
 
         if (do_ioo & t3) shift_reg[3] <= 1'b0;
         else if (iob_out[1] & do_ioo) shift_reg[3] <= 1'b1;
-        else if (shift_enable & baudrategen_clock_enable) shift_reg[3] <= shift_reg[4];   
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[3] <= shift_reg[4];
 
         if (do_ioo & t3) shift_reg[2] <= 1'b0;
         else if (iob_out[0] & do_ioo) shift_reg[2] <= 1'b1;
-        else if (shift_enable & baudrategen_clock_enable) shift_reg[2] <= shift_reg[3];  
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[2] <= shift_reg[3];
 
         if (~clock_enable_ff) shift_reg[1] <= 1'b0;
-        else if (shift_enable & baudrategen_clock_enable) shift_reg[1] <= shift_reg[2];  
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[1] <= shift_reg[2];
 
         if (~clock_enable_ff) shift_reg[0] <= 1'b1;
-        else if (shift_enable & baudrategen_clock_enable) shift_reg[0] <= shift_reg[1]; 
+        else if (shift_enable & baudrategen_clock_enable) shift_reg[0] <= shift_reg[1];
 
       end
     end

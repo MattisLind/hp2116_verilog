@@ -51,18 +51,18 @@ module hp2116_cpu #(
   input  logic         uart_rx,
   output logic         uart_tx,
   input  logic [7:0]   ptr_datain,
-  output logic [7:0]   ptr_dataout,  
+  output logic [7:0]   ptr_dataout,
   input  logic         ptr_feedhole,
-  output logic         ptr_read  
+  output logic         ptr_read
 );
 
   //--------------------------------------------------------------------------
   // Registers
   //--------------------------------------------------------------------------
   logic [15:0] A, B;
-  logic [15:0] TR;          // Kodkommentar: Minnesdatabuffert / T-register
-  logic [14:0] P;          // Kodkommentar: Programräknare
-  logic [14:0] M;          // Kodkommentar: Minnesadressregister
+  logic [15:0] TR;          // Memory data buffer / T register
+  logic [14:0] P;          // Program counter
+  logic [14:0] M;          // Memory address register
 
   logic        EXTEND;
   logic        OVERFLOW;
@@ -70,7 +70,7 @@ module hp2116_cpu #(
   logic Interrupt_System_Enable;
   logic Interrupt_Control;
 
-  // Kodkommentar: I-registret lagrar endast bit 15..10 från instruktionen.
+  // The I register stores only instruction bits 15..10.
   logic [5:0]  IR;
 
   logic IEN;
@@ -108,7 +108,7 @@ module hp2116_cpu #(
 
   logic edt;
   logic pon;
-  logic interrupt; 
+  logic interrupt;
 
   logic crs;
   logic prl11;
@@ -135,8 +135,7 @@ typedef enum logic [2:0] {
 
   tstate_t tstate;
 
-
-// Kodkommentar: HP12531C teleprinter interface
+// HP12531C teleprinter interface
 hp12531c serial (
   .clk(clk),
   .crs(crs),
@@ -186,7 +185,7 @@ hp12531c serial (
   .bioo_n(1'b0),
   .sfsb_or_bioi_n(1'b0),
   .uart_rx(uart_rx),
-  .uart_tx(uart_tx)  
+  .uart_tx(uart_tx)
 );
 
 hp12597a ptr (
@@ -238,16 +237,16 @@ hp12597a ptr (
   .bioo_n(1'b0),
   .sfsb_or_bioi_n(1'b0),
   .datain(ptr_datain),
-  .dataout(ptr_dataout),  
+  .dataout(ptr_dataout),
   .feedhole(ptr_feedhole),
-  .read(ptr_read) 
+  .read(ptr_read)
 );
 
   //--------------------------------------------------------------------------
   // Helper: next T-state
   //--------------------------------------------------------------------------
-  // Kodkommentar: Verilator gillar inte vanlig aritmetik direkt på enum-värden,
-  // så vi använder en explicit funktion.
+  // Workaround: Verilator does not like plain arithmetic directly on enum values,
+  // so an explicit function is used instead.
   function automatic tstate_t next_tstate(input tstate_t s);
     begin
       case (s)
@@ -291,25 +290,25 @@ hp12597a ptr (
   logic        is_srg_instr;
   logic        is_asg_instr;
   logic        is_jmp;
-  logic        msc0, msc1,msc2,msc3,msc4,msc5,msc6,msc7,lsc0,lsc1,lsc2,lsc3,lsc4,lsc5,lsc6,lsc7;  
+  logic        msc0, msc1,msc2,msc3,msc4,msc5,msc6,msc7,lsc0,lsc1,lsc2,lsc3,lsc4,lsc5,lsc6,lsc7;
   logic        skip_on_overflow;
   logic        sfs_intp, sfc_intp, skip_intp, skip_io;
 
   logic set_control, clear_control, clear_flag, set_flag, set_overflow, clear_overflow, set_interrupt_control, clear_interrupt_control, set_interrupt_system_enable, clear_interrupt_system_enable;
   always_comb begin
-    // Kodkommentar: Decodern använder I-registret (IR) för kontrollfältet.
+    // The decoder uses the I register (IR) for the control field.
     op4 = IR[4:1];
     cz  = IR[0];
     ind = TR[15];
 
-    // Kodkommentar: De låga adressbitarna kommer från T-registret.
+    // The low address bits come from the T register.
     off10 = TR[9:0];
 
-    // Kodkommentar: Current page tas från P[14:10].
+    // The current page comes from P[14:10].
     direct_addr = cz ? {P[14:10], off10} : {5'b00000, off10};
 
-    // Kodkommentar: HALT dekodas som 1020xx. När IR bara är bit 15..10 räcker
-    // det att jämföra mot toppfältet.
+    // HALT decodes as 1020xx. Since IR only stores bits 15..10, it is enough
+    // to compare against the top field.
 
     is_io_instr = (IR[5:2] == 4'o10) & IR[0];
     is_mac_instr = (IR[5:2] == 4'o10) & ~IR[0];
@@ -319,19 +318,19 @@ hp12597a ptr (
     msc0 = TR[5:3] == 3'o0;
     msc1 = TR[5:3] == 3'o1;
     msc2 = TR[5:3] == 3'o2;
-    msc3 = TR[5:3] == 3'o3;  
+    msc3 = TR[5:3] == 3'o3;
     msc4 = TR[5:3] == 3'o4;
     msc5 = TR[5:3] == 3'o5;
     msc6 = TR[5:3] == 3'o6;
-    msc7 = TR[5:3] == 3'o7;      
+    msc7 = TR[5:3] == 3'o7;
     lsc0 = TR[2:0] == 3'o0;
     lsc1 = TR[2:0] == 3'o1;
     lsc2 = TR[2:0] == 3'o2;
-    lsc3 = TR[2:0] == 3'o3;  
+    lsc3 = TR[2:0] == 3'o3;
     lsc4 = TR[2:0] == 3'o4;
     lsc5 = TR[2:0] == 3'o5;
     lsc6 = TR[2:0] == 3'o6;
-    lsc7 = TR[2:0] == 3'o7;  
+    lsc7 = TR[2:0] == 3'o7;
     // iog signal is the same as is_io_instr
     set_control = is_io_instr & ~IR[1] & (TR[8:6] == 3'o7);
     clear_control = is_io_instr & IR[1] & (TR[8:6] == 3'o7);
@@ -365,16 +364,15 @@ hp12597a ptr (
     interrupt = irq10 & Interrupt_System_Enable & Interrupt_Control;
   end
 
-
 always @* begin
-    // Standardvärde för att undvika latchar
+    // Default value to avoid latches
     iob_in_internal = 16'h0000;
 
-    // Specialfall: interna select codes 00-07 (och ev. reserverade värden)
+    // Special case: internal select codes 00-07 (and any reserved values)
     if (TR[5:0] < 6'o10) begin
         case (TR[5:0])
             6'o01: iob_in_internal = sw;
-            default: iob_in_internal = 16'h0000;  
+            default: iob_in_internal = 16'h0000;
         endcase
     end
     else begin
@@ -389,32 +387,32 @@ end
           if (TR[11] == 0)
             A <= {A[15], A[13:0], 1'b0};
           else
-            B <= {B[15], B[13:0], 1'b0}; 
-        end    
+            B <= {B[15], B[13:0], 1'b0};
+        end
       3'o1: begin // right shift
           if (TR[11] == 0)
             A <= {A[15], A[15:1]};
           else
-            B <= {B[15], B[15:1]};  
+            B <= {B[15], B[15:1]};
         end
       3'o2:  begin // rotate left
           if (TR[11] == 0)
             A <= {A[14:0], A[15]};
           else
-            B <= {B[14:0], B[15]};  
+            B <= {B[14:0], B[15]};
         end
       3'o3:  begin // rotate right
           if (TR[11] == 0)
             A <= {A[0], A[15:1]};
           else
-            B <= {B[0], B[15:1]}; 
+            B <= {B[0], B[15:1]};
         end
       3'o4:  begin // left shift clear sign
           if (TR[11] == 0)
             A <= {1'b0, A[13:0], 1'b0};
           else
-            B <= {1'b0, B[13:0], 1'b0}; 
-        end 
+            B <= {1'b0, B[13:0], 1'b0};
+        end
       3'o5: begin // rotate E right with register
           if (TR[11] == 0) begin
             if (store) A <= {EXTEND, A[15:1]};
@@ -423,8 +421,8 @@ end
           else begin
             if (store) B <= {EXTEND, B[15:1]};
             EXTEND <= B[0];
-          end       
-        end 
+          end
+        end
       3'o6: begin  // rotate E left with register
           if (TR[11] == 0) begin
             if (store) A <= { A[14:0], EXTEND};
@@ -433,24 +431,23 @@ end
           else begin
             if (store) B <= {B[14:0], EXTEND};
             EXTEND <= B[15];
-          end            
+          end
         end
       3'o7: begin // rotate four left
           if (TR[11] == 0)
             A <= {A[11:0], A[15:12]};
           else
-            B <= {B[11:0], B[15:12]};  
-        end   
-    endcase                
+            B <= {B[11:0], B[15:12]};
+        end
+    endcase
   end
   endtask
-
 
   //--------------------------------------------------------------------------
   // Memory wiring
   //--------------------------------------------------------------------------
   always_comb begin
-    // Kodkommentar: Adress drivs från M och skrivdata från T.
+    // Address is driven from M and write data from T.
     mem_addr  = M;
     mem_wdata = TR;
   end
@@ -474,7 +471,7 @@ end
     end
   end
 
-  // Kodkommentar: Knapptryck detekteras endast på stigande flank.
+  // Button presses are detected only on the rising edge.
   assign run_press = run_btn & ~run_btn_d;
   assign sc_press  = single_cycle_btn & ~sc_btn_d;
 
@@ -522,15 +519,15 @@ end
       popio <= 1'b1;
 
     end else begin
-      // Kodkommentar: Default är ingen minnesskrivning denna cykel.
+      // Default is no memory write in this cycle.
       mem_we <= 1'b0;
       popio <= 1'b0;
       //======================================================================
       // Front panel commands
       //======================================================================
 
-      // Kodkommentar: DISPLAY MEMORY använder synkron RAM-modell och fångar
-      // därför mem_rdata på nästa klockkant.
+      // DISPLAY MEMORY uses a synchronous RAM model and captures
+      // mem_rdata on the next clock edge.
       if (panel_disp_pending) begin
         TR <= mem_rdata;
         M <= M + 15'o00001;
@@ -538,7 +535,7 @@ end
         panel_disp_pending <= 1'b0;
       end
 
-      // Kodkommentar: PRESET återställer fas och T-räknare till startläge.
+      // PRESET resets the phase and T-state counter to the start state.
       if (preset_btn) begin
         phase  <= PH_FETCH;
         tstate <= T0;
@@ -548,29 +545,29 @@ end
         phase_step_armed   <= 1'b0;
         step_started_by_sc <= 1'b0;
       end else begin
-        // Kodkommentar: HALT-knappen stoppar direkt.
+        // The HALT button stops execution immediately.
         if (halt_btn) begin
           RUN <= 1'b0;
           phase_step_armed   <= 1'b0;
           step_started_by_sc <= 1'b0;
         end
 
-        // Kodkommentar: RUN-knappen startar fri körning.
+        // The RUN button starts free-running execution.
         if (run_press) begin
           RUN <= 1'b1;
           phase_step_armed   <= 1'b0;
           step_started_by_sc <= 1'b0;
         end
 
-        // Kodkommentar: SINGLE CYCLE kör exakt en hel fas och stannar sedan vid
-        // nästa T7 -> T0-övergång.
+        // SINGLE CYCLE runs exactly one full phase and then stops at the
+        // next T7 -> T0 transition.
         if (sc_press && !RUN) begin
           RUN <= 1'b1;
           phase_step_armed   <= 1'b1;
           step_started_by_sc <= 1'b1;
         end
 
-        // Kodkommentar: Frontpanelsfunktioner fungerar även när RUN=0.
+        // Front-panel functions also work when RUN=0.
         if (load_a_btn) A <= sw;
         if (load_b_btn) B <= sw;
 
@@ -580,7 +577,7 @@ end
         end
 
         if (load_mem_btn) begin
-          // Kodkommentar: LOAD MEMORY skriver SW via T-registret.
+          // LOAD MEMORY writes SW through the T register.
           TR      <= sw;
           mem_we <= 1'b1;
           M      <= M + 15'o00001;
@@ -603,16 +600,16 @@ end
             PH_FETCH: begin
               unique case (tstate)
                 T0: begin
-                  // Kodkommentar: Lägg programräknaren i M inför minnesläsning.
+                  // Load the program counter into M before the memory read.
                   //M <= P;
                   CARRY <= 1'b0;
 
-                  Interrupt_Control <= 1'b1;                  
+                  Interrupt_Control <= 1'b1;
                 end
 
                 T1: begin
-                  // Kodkommentar: Synkron minnesmodell - instruktionen läses in i T.
-                  if (M== 15'o00000) 
+                  // Synchronous memory model: the instruction is read into T.
+                  if (M== 15'o00000)
                     TR <= A;
                   else if (M== 15'o00001)
                     TR <= B;
@@ -621,7 +618,7 @@ end
                 end
 
                 T2: begin
-                  // Kodkommentar: Latcha instruktionsfältet T[15:10] till I-registret.
+                  // Latch instruction field T[15:10] into the I register.
                   IR <= TR[15:10];
                 end
 
@@ -629,13 +626,13 @@ end
 
                   if(set_interrupt_system_enable) begin
                     Interrupt_System_Enable <= 1'b1;
-                  end 
+                  end
                   if (set_overflow) begin
                     OVERFLOW <= 1'b1;
-                  end  
+                  end
                   if (is_srg_instr & TR[9]) begin
                     do_shift_rotate(TR[8:6],1'b1);
-                  end 
+                  end
                   if  (is_srg_instr & ~TR[9] & ((TR[8:6] == 3'o5) || (TR[8:6] == 3'o6))) begin
                     do_shift_rotate(TR[8:6],1'b0);
                   end
@@ -652,7 +649,7 @@ end
                         2'o3: // Set
                           A<=16'o177777;
                       endcase
-                          
+
                     else
                       unique case (TR[9:8])
                         2'o0:begin
@@ -661,7 +658,7 @@ end
                         2'o1: // Clear
                           B<=16'o000000;
                         2'o2: // Complement
-                          B<=~B; 
+                          B<=~B;
                         2'o3: // Set
                           B<=16'o177777;
                       endcase
@@ -674,18 +671,18 @@ end
                     unique case (TR[7:6])
                       2'b00:begin
                         // no operation
-                      end  
-                      2'b01: 
+                      end
+                      2'b01:
                         EXTEND <= 1'b0;
                       2'b10:
                         EXTEND <= ~EXTEND;
                       2'b11:
                         EXTEND <= 1'b1;
-                    endcase 
-                  end            
+                    endcase
+                  end
                 end
 
-                T4: begin 
+                T4: begin
                   if (is_asg_instr) begin
                     if (TR[11] == 1'b0) begin
                       if (((~A[15] & TR[4] | ~A[0] & TR[3]) & ~TR[0]) | ((~(~A[15] & TR[4] | ~A[0] & TR[3])) & TR[0] & (TR[3] | TR[4]) ))
@@ -695,7 +692,6 @@ end
                       if (((~B[15] & TR[4] | ~B[0] & TR[3]) & ~TR[0]) | ((~(~B[15] & TR[4] | ~B[0] & TR[3])) & TR[0] & (TR[3] | TR[4])))
                         CARRY <= 1'b1;
                     end
-  
 
                     if (TR[2]) begin
                       if (TR[11] == 1'b0) begin
@@ -710,14 +706,14 @@ end
                       else begin
                         if (B == 16'o177777) begin
                           EXTEND <= 1'b1;
-                        end 
+                        end
                         if (B == 16'o077777) begin
                           OVERFLOW <= 1'b1;
-                        end                                               
+                        end
                         B <= B + 16'o000001;
                       end
 
-                    end    
+                    end
 
                   end
                   if (skip_io) begin
@@ -728,14 +724,14 @@ end
                   end
                   if(clear_interrupt_control) begin
                     Interrupt_Control <= 1'b0;
-                  end 
+                  end
                   if(clear_interrupt_system_enable) begin
                     Interrupt_System_Enable <= 1'b0;
                   end
                   if (clear_overflow) begin
                     OVERFLOW <= 1'b0;
-                  end  
-                  if(is_srg_instr) begin 
+                  end
+                  if(is_srg_instr) begin
                     if (TR[5]) EXTEND <= 1'b0;
                     if (TR[3]) begin
                       if (TR[11] == 1'b0) begin
@@ -746,50 +742,50 @@ end
                           CARRY <= 1'b1;
                       end
                     end
-                  end                                                        
+                  end
                 end
 
                 T5: begin
                   if (is_srg_instr & TR[4]) begin
                     do_shift_rotate(TR[2:0], 1'b1);
-                  end  
+                  end
                   if  (is_srg_instr & ~TR[4] & ((TR[2:0] == 3'o5) || (TR[2:0] == 3'o6))) begin
                     do_shift_rotate(TR[2:0],1'b0);
-                  end                  
+                  end
                   if (is_asg_instr & TR[1]) begin
                       if (TR[11] == 1'b0) begin
-                        if (A == 16'o000000 & ~TR[0] || A!=16'o000000 & TR[0]) 
+                        if (A == 16'o000000 & ~TR[0] || A!=16'o000000 & TR[0])
                           CARRY <= 1'b1;
                       end
                       else begin
-                        if (B == 16'o000000 & ~TR[0] || B != 16'o000000 & TR[0])  
-                          CARRY <= 1'b1;   
-                      end                    
+                        if (B == 16'o000000 & ~TR[0] || B != 16'o000000 & TR[0])
+                          CARRY <= 1'b1;
+                      end
                   end
                   if (is_asg_instr & ~TR[1] & ~TR[3] & ~TR[4] & ~TR[5] & TR[0]) begin // unconditional skip
-                    CARRY <= 1'b1;  
-                  end  
+                    CARRY <= 1'b1;
+                  end
                   if (is_io_instr) begin
-                    case (TR[8:6]) 
+                    case (TR[8:6])
                       3'o4: begin // MIA
                         if (IR[1] == 1'b0) begin
                           A <= A | iob_in_internal;
-                        end 
+                        end
                         else begin
                           B <= B | iob_in_internal;
                         end
-                      end                    
+                      end
                       3'o5: begin //LIA
                         if (IR[1] == 1'b0) begin
                           A <= iob_in_internal;
-                        end 
+                        end
                         else begin
                           B <= iob_in_internal;
                         end
                       end
                     endcase
-                  end 
-                  case (TR[5:0]) 
+                  end
+                  case (TR[5:0])
                     6'o01: begin
                       //sw <= iob_out;
                     end
@@ -797,8 +793,8 @@ end
                 end
 
                 T7: begin
-                  // Kodkommentar: FETCH avslutas vid T7.
-                  // Normalt stegas P till nästa sekventiella instruktion.
+                  // FETCH completes at T7.
+                  // Normally P advances to the next sequential instruction.
                   if (interrupt) begin
                     phase <= PH_INTERRUPT;
                   end
@@ -807,25 +803,25 @@ end
                     M <= P + 15'o00001;
                     P <= P + 15'o00001;
                     phase <= PH_FETCH;
-                  end                   
-                  // Kodkommentar: HALT känns igen redan här i FETCH/T7.
+                  end
+                  // HALT is recognized already here in FETCH/T7.
                   else if (is_srg_instr | is_asg_instr | is_io_instr) begin
                     P <= P + {14'o00000, CARRY} + 15'o00001;
                     M <= P + {14'o00000, CARRY} + 15'o00001;
                   end
-                  // Kodkommentar: Direkt JMP avslutas helt i fetch-fasen.
+                  // A direct JMP completes entirely in the fetch phase.
                   else if (is_jmp && !ind) begin
                     M     <= direct_addr;
                     P     <= direct_addr;
                     phase <= PH_FETCH;
                   end
-                  // Kodkommentar: Indirekt JMP går vidare till indirektfasen.
+                  // An indirect JMP proceeds to the indirect phase.
                   else if (is_jmp && ind) begin
                     M     <= direct_addr;
                     phase <= PH_INDIRECT;
                   end
-                  // Kodkommentar: Övriga indirekta minnesreferensinstruktioner
-                  // går också vidare via indirektfasen.
+                  // Other indirect memory-reference instructions
+                  // also proceed through the indirect phase.
                   else if (ind) begin
                     //P <= P + 15'o00001;
                     M     <= direct_addr;
@@ -833,8 +829,8 @@ end
                   end
 
                   else begin
-                    // Kodkommentar: Direkt adresserade instruktioner får effektiv
-                    // adress i M och går sedan till execute.
+                    // Direct-addressed instructions get their effective
+                    // address in M and then move to execute.
 
                     M     <= direct_addr;
                     phase <= PH_EXECUTE;
@@ -842,7 +838,7 @@ end
                 end
 
                 default: begin
-                  // Kodkommentar: Övriga T-states används inte ännu i fetch.
+                  // The remaining T-states are not used in fetch yet.
                 end
               endcase
             end
@@ -853,7 +849,7 @@ end
             PH_INDIRECT: begin
               unique case (tstate)
                 T1: begin
-                  if (M== 15'o00000) 
+                  if (M== 15'o00000)
                     TR <= A;
                   else if (M== 15'o00001)
                     TR <= B;
@@ -862,22 +858,22 @@ end
                 end
 
                 T7: begin
-                  // Kodkommentar: Efter indirektfasen finns den slutliga effektiva
-                  // adressen i T[14:0].
-                  M <= TR[14:0];                  
+                  // After the indirect phase, the final effective
+                  // address is in T[14:0].
+                  M <= TR[14:0];
                   if (ind) begin
                     phase <= PH_INDIRECT;
-                  end 
+                  end
                   else if (is_jmp) begin
-                    P     <= TR[14:0]; 
-                    phase <= PH_FETCH;                   
+                    P     <= TR[14:0];
+                    phase <= PH_FETCH;
                   end else begin
                     phase <= PH_EXECUTE;
                   end
                 end
 
                 default: begin
-                  // Kodkommentar: Övriga T-states används inte ännu här.
+                  // The remaining T-states are not used here yet.
                 end
               endcase
             end
@@ -891,19 +887,19 @@ end
                   CARRY <= 1'b0;
                 end
                 T1: begin
-                  if (M== 15'o00000) 
+                  if (M== 15'o00000)
                     TR <= A;
                   else if (M== 15'o00001)
                     TR <= B;
                   else
                     TR <= mem_rdata;
-                end                
+                end
                 T2: begin
-                  if (op4 == 4'o16) 
+                  if (op4 == 4'o16)
                     TR <= A;
                   if (op4 == 4'o17)
-                    TR <= B;   
-                  if (op4 == 4'o07) 
+                    TR <= B;
+                  if (op4 == 4'o07)
                     TR <= TR + 16'o000001;
                   if (op4 == 4'o03)
                     TR <= {1'b0, (P + 15'o000001)};
@@ -918,19 +914,19 @@ end
                       end
                     4'o02: // AND - And to A
                       A <= A & TR;
-                    4'o03: //JSB - Jump to subroutine 
-                      if ((M!= 15'o00000) && (M!= 15'o00001)) 
+                    4'o03: //JSB - Jump to subroutine
+                      if ((M!= 15'o00000) && (M!= 15'o00001))
                         mem_we <= 1'b1;
                     4'o04: // XOR
-                      A <= A ^ TR;                     
+                      A <= A ^ TR;
                     4'o05: // JMP - Jump is handled in FETCH.
                       begin
-                      
+
                       end
                     4'o06: // IOR - Inclusive OR
                       A <= A | TR;
                     4'o07:  // ISZ - Inrement memory and skip if zero
-                      if ((M!= 15'o00000) && (M!= 15'o00001)) 
+                      if ((M!= 15'o00000) && (M!= 15'o00001))
                         mem_we <= 1'b1;
                     4'o10: // ADA - Add to A
                     begin
@@ -944,7 +940,7 @@ end
                       add_sum = {1'b0, B} + {1'b0, TR};
                       B <= add_sum[15:0];
                       if (add_sum[16] == 1'b1) EXTEND <= 1'b1;
-                      if (((~(B[15] ^ TR[15])) & (B[15] ^ add_sum[15])) == 1'b1) OVERFLOW <= 1'b1;                      
+                      if (((~(B[15] ^ TR[15])) & (B[15] ^ add_sum[15])) == 1'b1) OVERFLOW <= 1'b1;
                     end
                     4'o12: // CPA - Compare A to memory - skip if not identical
                       begin
@@ -955,16 +951,16 @@ end
                       begin // CPB - Compare B to memory - skip if not identical
                         if (B != TR)
                           CARRY <= 1'b1;
-                      end                    
+                      end
                     4'o14: // LDA - Load A from memory
                       A <= TR;
                     4'o15: // LDB - Load B from memory
                       B <= TR;
                     4'o16:
-                      if ((M!= 15'o00000) && (M!= 15'o00001)) 
+                      if ((M!= 15'o00000) && (M!= 15'o00001))
                         mem_we <= 1'b1;
                     4'o17:
-                      if ((M!= 15'o00000) && (M!= 15'o00001)) 
+                      if ((M!= 15'o00000) && (M!= 15'o00001))
                         mem_we <= 1'b1;
                   endcase
                 end
@@ -973,20 +969,20 @@ end
                     mem_we <= 1'b0;
                     if (M== 15'o00000) A <= TR;
                     if (M== 15'o00001) B <= TR;
-                  end 
+                  end
                 end
                 T5: begin
                   if (op4 == 4'o07)
-                    if (TR == 16'o000000) 
+                    if (TR == 16'o000000)
                       CARRY <= 1'b1;
                   if ( op4 == 4'o03)
                     P <= M;
                 end
                 T7: begin
-                  // Kodkommentar: JMP och HALT hanteras redan tidigare och ska
-                  // därför inte hanteras här.
+                  // JMP and HALT are handled earlier and should
+                  // therefore not be handled here.
                   phase <= PH_FETCH;
-                  if (op4 == 4'o07 || op4 == 4'o12 || op4 == 4'o13) begin                                        
+                  if (op4 == 4'o07 || op4 == 4'o12 || op4 == 4'o13) begin
                     P <= P + 15'o00001 + { 14'o0000, CARRY};
                     M <= P + 15'o00001 + { 14'o0000, CARRY};
                   end
@@ -997,7 +993,7 @@ end
                 end
 
                 default: begin
-                  // Kodkommentar: Platshållare för framtida execute-logik.
+                  // Placeholder for future execute logic.
                 end
               endcase
             end
@@ -1034,12 +1030,12 @@ end
                   //==================================================================
             // Free-running modulo-8 T-state counter
             //==================================================================
-            // Kodkommentar: Detta är den centrala ändringen. T-räknaren går runt
-            // fritt så länge RUN är satt, oberoende av fas.
+            // This is the central change. The T-state counter runs
+            // freely as long as RUN is asserted, independent of phase.
           if (tstate == T7) begin
               tstate <= T0;
 
-              // Kodkommentar: SINGLE CYCLE stoppar på fasgränsen efter exakt en fas.
+              // SINGLE CYCLE stops at the phase boundary after exactly one phase.
             if (step_started_by_sc && phase_step_armed) begin
                 RUN                <= 1'b0;
                 phase_step_armed   <= 1'b0;
@@ -1047,7 +1043,7 @@ end
             end
           end else begin
               tstate <= next_tstate(tstate);
-          end  
+          end
         end
 
       end

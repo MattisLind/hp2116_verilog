@@ -16,7 +16,8 @@ module tb_hp2116;
 
   localparam int MEM_WORDS = 1 << 15;
 
-  localparam logic [15:0] INSTR_HALT = 16'o102000;
+  localparam logic [15:0] INSTR_HALT    = 16'o102000;
+  localparam time         UART_BIT_TIME = 400ns;
 
   logic clk, rst_n;
 
@@ -40,16 +41,16 @@ module tb_hp2116;
   logic uart_rx;
   logic uart_tx;
   logic [7:0] ptr_datain;
-  logic [7:0] ptr_dataout;  
+  logic [7:0] ptr_dataout;
   logic ptr_feedhole;
-  logic ptr_read; 
+  logic ptr_read;
 
-    // Kodkommentar: Filhandtag och temporärvariabel för pappersremsläsaren.
+    // File handle and temporary variable for the paper tape reader.
   integer ptr_fd;
   integer ptr_c;
 
-  // Kodkommentar: Standardfil för pappersremsan. Kan överskuggas med +PTR_FILE=...
-  string ptr_filename;   
+  // Default paper tape file. Can be overridden with +PTR_FILE=...
+  string ptr_filename;
   string DSN;
   string pretest;
   string trace;
@@ -83,9 +84,9 @@ module tb_hp2116;
     .uart_rx(uart_rx),
     .uart_tx(uart_tx),
     .ptr_datain(ptr_datain),
-    .ptr_dataout(ptr_dataout),  
+    .ptr_dataout(ptr_dataout),
     .ptr_feedhole(ptr_feedhole),
-    .ptr_read(ptr_read)     
+    .ptr_read(ptr_read)
   );
 
   // Clock
@@ -93,7 +94,7 @@ module tb_hp2116;
   always #5 clk = ~clk;
 
   // Synchronous memory model
-  // Kodkommentar: read-data uppdateras på posedge för att få deterministisk timing.
+  // Read data is updated on posedge to get deterministic timing.
   always_ff @(posedge clk) begin
     if (mem_we) begin
       mem[mem_addr] <= mem_wdata;
@@ -101,7 +102,7 @@ module tb_hp2116;
     mem_rdata <= mem[mem_addr];
   end
 
-  // Kodkommentar: Starta dump först efter reset för mindre VCD-fil.
+  // Start waveform dump only after reset for a smaller dump file.
   initial begin
     $dumpfile("tb_hp2116.fst");
     @(posedge rst_n);
@@ -115,24 +116,24 @@ module tb_hp2116;
     time bit_time;
     int i;
     begin
-      // Kodkommentar: Beräkna bittiden i ns utifrån vald baudrate.
-      bit_time = 400ns;
+      // Compute the bit time in ns from the selected baud rate.
+      bit_time = UART_BIT_TIME;
 
-      // Kodkommentar: Idle-nivån är hög.
+      // The idle level is high.
       serial_line = 1'b1;
       #(bit_time);
 
-      // Kodkommentar: Startbit.
+      // Start bit.
       serial_line = 1'b0;
       #(bit_time);
 
-      // Kodkommentar: Skicka databitar LSB först.
+      // Send data bits LSB first.
       for (i = 0; i < 8; i++) begin
         serial_line = data[i];
         #(bit_time);
       end
 
-      // Kodkommentar: Två stoppbitar.
+      // Two stop bits.
       serial_line = 1'b1;
       #(bit_time);
       serial_line = 1'b1;
@@ -147,26 +148,25 @@ module tb_hp2116;
     time bit_time;
     int i;
     begin
-      // Kodkommentar: Beräkna bittiden i ns utifrån vald baudrate.
-      bit_time = 400ns;
+      // Compute the bit time in ns from the selected baud rate.
+      bit_time = UART_BIT_TIME;
 
-      // Kodkommentar: Vänta på startbit.
+      // Wait for the start bit.
       @(negedge serial_line);
 
-      // Kodkommentar: Gå till mitten av första databiten.
+      // Move to the middle of the first data bit.
       #(bit_time + bit_time/2);
 
-      // Kodkommentar: Sampla 8 databitar, LSB först.
+      // Sample 8 data bits, LSB first.
       for (i = 0; i < 8; i++) begin
         data[i] = serial_line;
         #(bit_time);
       end
 
-      // Kodkommentar: Hoppa över stoppbitarna.
+      // Skip the stop bits.
       #(2 * bit_time);
     end
   endtask
-
 
   task automatic uart_expect_byte(
     ref logic serial_line,
@@ -174,7 +174,7 @@ module tb_hp2116;
   );
     logic [7:0] received;
     begin
-      // Kodkommentar: Ta emot en byte från DUT och jämför mot förväntat värde.
+      // Receive one byte from the DUT and compare it with the expected value.
       uart_recv_byte(serial_line, received);
 
       if (received !== expected) begin
@@ -183,8 +183,8 @@ module tb_hp2116;
       end
       else begin
         if (!$value$plusargs("TRACE=%s", trace))
-          trace = "NO";   
-        if (trace == "YES") 
+          trace = "NO";
+        if (trace == "YES")
           $display("UART OK: 0x%02h at time %0t", received, $time);
       end
     end
@@ -194,11 +194,11 @@ module tb_hp2116;
     logic [7:0] ch;
 
     forever begin
-      // Kodkommentar: Vänta på en byte från DUT:s sändare.
+      // Wait for a byte from the DUT transmitter.
       uart_recv_byte(uart_tx, ch);
       if (!$value$plusargs("TRACE=%s", trace))
-        trace = "NO";   
-      if (trace == "YES") begin        
+        trace = "NO";
+      if (trace == "YES") begin
         $display("UART TX byte: 0x%02h (%s) at time %0t",
                ch,
                (ch >= 8'h20 && ch <= 8'h7e) ? {byte'(ch)} : ".",
@@ -207,19 +207,18 @@ module tb_hp2116;
     end
   end
 
-
-  // Kodkommentar: Mata in en byte till den simulerade pappersremsläsaren.
-  // Kodkommentar: Datan görs stabil före feedhole och feedhole hålls aktiv över
-  // Kodkommentar: en positiv klockkant så att DUT säkert latchar byten.
+  // Feed one byte into the simulated paper tape reader.
+  // The data is made stable before feedhole and feedhole stays active across
+  // a positive clock edge so the DUT safely latches the byte.
   task automatic ptr_feed_byte(input logic [7:0] value);
     begin
       ptr_datain = value;
 
-      // Kodkommentar: Gör datan stabil före aktiv samplingskant.
+      // Make the data stable before the active sampling edge.
       @(negedge clk);
       ptr_feedhole = 1'b1;
 
-      // Kodkommentar: Håll feedhole aktiv över en positiv flank.
+      // Keep feedhole active across a positive edge.
       @(negedge clk);
       ptr_feedhole = 1'b0;
     end
@@ -228,12 +227,12 @@ module tb_hp2116;
   // ------------------------------------------------------------
   // Utility: drive a clean 1-cycle pulse for a button
   // ------------------------------------------------------------
-  // Kodkommentar: Detta representerar en debouncad knapp (en ren puls).
+  // This represents a debounced button press (a clean pulse).
   task automatic pulse_btn(ref logic btn);
     begin
       btn = 1'b1;
-      @(posedge clk);   // DUT får sampla knappen här
-      @(negedge clk);   // Vänta tills efter samplingskanten
+      @(posedge clk);   // The DUT can sample the button here
+      @(negedge clk);   // Wait until after the sampling edge
       btn = 1'b0;
     end
   endtask
@@ -262,7 +261,7 @@ module tb_hp2116;
   // ------------------------------------------------------------
   // Helper: read one 16-bit word, big-endian (MSB first)
   // ------------------------------------------------------------
-  // Kodkommentar: Vi maskar ner till exakt 8 bitar för att undvika
+  // Mask down to exactly 8 bits to avoid
   // breddvarningar i Verilator.
   function automatic bit read_word_be(input int fd, output logic [15:0] word);
     int hi, lo;
@@ -293,9 +292,9 @@ module tb_hp2116;
   //   last:  checksum
   //
   // Stop rule:
-  //   Efter en tillräckligt lång följd av 0000-ord antar vi att
-  //   själva tape-datan är slut och att eventuell trailer/text
-  //   därefter inte ska laddas.
+  //   After a long enough run of 0000 words, assume that
+  //   the actual tape data has ended and that any trailer/text
+  //   that follows should not be loaded.
   // ------------------------------------------------------------
   task automatic load_hp21xx_abs(input string filename, input bit do_fill_halt);
     int fd;
@@ -309,7 +308,7 @@ module tb_hp2116;
 
     logic [15:0] sum, sum_twos;
 
-    // Kodkommentar: Antal nollord i följd som tolkas som "slut på tape-data".
+    // Number of consecutive zero words interpreted as "end of tape data".
     localparam int END_ZERO_WORDS = 64;
     int zero_run;
 
@@ -331,12 +330,12 @@ module tb_hp2116;
         break;
       end
 
-      // Kodkommentar: Räkna sammanhängande 0000-ord.
+      // Count consecutive 0000 words.
       if (hdr == 16'o000000) begin
         zero_run++;
 
-        // Kodkommentar: En lång följd av nollor markerar slut på själva
-        // ABS-innehållet. Då avslutar vi innan eventuell text-trailer.
+        // A long run of zeros marks the end of the actual
+        // ABS content. Loading stops before any trailing text.
         if (zero_run >= END_ZERO_WORDS) begin
           $display("ABS loader: end of tape data after %0d consecutive zero words.", zero_run);
           break;
@@ -345,10 +344,10 @@ module tb_hp2116;
         continue;
       end
 
-      // Kodkommentar: Så fort vi ser ett icke-nollord återställs nollräknaren.
+      // As soon as a non-zero word is seen, the zero counter is reset.
       zero_run = 0;
 
-      // Kodkommentar: Ett giltigt record-headerord måste ha low byte = 00.
+      // A valid record header word must have low byte = 00.
       if (hdr[7:0] != 8'o000) begin
         $display("ABS loader: non-record word %04h at rec=%0d, stopping.", hdr, rec);
         break;
@@ -368,7 +367,7 @@ module tb_hp2116;
           $fatal(1, "ABS loader: EOF while reading data rec=%0d i=%0d", rec, i);
         end
 
-        // Kodkommentar: Explicit 15-bitars adress för att undvika breddvarningar.
+        // Explicit 15-bit address to avoid width warnings.
         load_addr = addr_w[14:0] + i[14:0];
 
         mem[load_addr] = data_w;
@@ -387,7 +386,7 @@ module tb_hp2116;
 
       sum_twos = (~sum) + 16'o000001;
 
-      // Kodkommentar: Behåll din befintliga tolerans för checksum-format.
+      // Keep the existing checksum-format tolerance.
       if ((chk_w !== sum) && (chk_w !== sum_twos)) begin
         $display("ABS loader: checksum mismatch rec=%0d addr=%0o count=%0d",
                  rec, addr_w[14:0], count);
@@ -432,7 +431,6 @@ function automatic string append_part(input string base, input string part);
         return {base, ", ", part};
 endfunction
 
-
 function automatic string fmt_rotate_shift(input logic [2:0] code, input logic a);
   string acc;
   if (a) acc="B";
@@ -449,7 +447,6 @@ function automatic string fmt_rotate_shift(input logic [2:0] code, input logic a
   endcase
 endfunction
 
-
 function automatic string disasm_srg(input logic [15:0] tr);
     string result;
     string part;
@@ -457,18 +454,18 @@ function automatic string disasm_srg(input logic [15:0] tr);
     begin
         result = "";
 
-        // Kodkommentar: Första shift/rotate-operationen från bitfält [8:6].
+        // First shift/rotate operation from bit field [8:6].
         if (tr[9]) begin
             part = fmt_rotate_shift(tr[8:6], tr[11]);
             result = append_part(result, part);
         end
 
-        // Kodkommentar: CLE läggs till om bit 5 är satt.
+        // CLE is added if bit 5 is set.
         if (tr[5]) begin
             result = append_part(result, "CLE");
         end
 
-        // Kodkommentar: SLA eller SLB läggs till om bit 3 är satt.
+        // SLA or SLB is added if bit 3 is set.
         if (tr[3]) begin
             if (tr[11])
                 result = append_part(result, "SLB");
@@ -476,20 +473,19 @@ function automatic string disasm_srg(input logic [15:0] tr);
                 result = append_part(result, "SLA");
         end
 
-        // Kodkommentar: Sista shift/rotate-operationen från bitfält [2:0].
+        // Final shift/rotate operation from bit field [2:0].
         if (tr[4]) begin
             part = fmt_rotate_shift(tr[2:0], tr[11]);
             result = append_part(result, part);
         end
 
-        // Kodkommentar: Om inget delkommando hittades, returnera en reservtext.
+        // If no subcommand was found, return a fallback text.
         if (result == "")
             return "NOP";
         else
             return result;
     end
 endfunction
-
 
 function automatic string disasm_asg (input logic [15:0] tr);
   string acc, result;
@@ -507,18 +503,18 @@ function automatic string disasm_asg (input logic [15:0] tr);
       2'o1: result = append_part(result, "CLE");
       2'o2: result = append_part(result, "CME");
       2'o3: result = append_part(result, "CCE");
-    endcase 
+    endcase
     if (tr[4]) result = append_part(result, $sformatf("SS%s", acc));
     if (tr[3]) result = append_part(result, $sformatf("SL%s", acc));
-    if (tr[2]) result = append_part(result, $sformatf("IN%s", acc)); 
+    if (tr[2]) result = append_part(result, $sformatf("IN%s", acc));
     if (tr[1]) result = append_part(result, $sformatf("SZ%s", acc));
     if (tr[0]) result = append_part(result, "RSS");
     end
   return result;
 endfunction
 
-// Kodkommentar: Minimal första version av disassemblern.
-// Kodkommentar: Disassembler med lokal operandsträng för minnesreferenser.
+// Minimal first version of the disassembler.
+// Disassembler with a local operand string for memory references.
 function automatic string mini_disasm(input logic [15:0] tr);
     logic [5:0] ir;
     logic [3:0] op4;
@@ -528,7 +524,6 @@ function automatic string mini_disasm(input logic [15:0] tr);
         ir    = tr[15:10];
         op4   = ir[4:1];
         memop = fmt_mem_operand(tr);
-
 
         if (ir[5:2] == 4'o00) begin
             if (ir[0])
@@ -543,13 +538,13 @@ function automatic string mini_disasm(input logic [15:0] tr);
                   if (tr[10]) begin
                     if (tr[9]) begin
                       return {"HLT ", $sformatf("%02o,C", tr[5:0])};
-                    end else 
+                    end else
                       return {"HLT ", $sformatf("%02o", tr[5:0])};
-                    end 
+                    end
                   end
                 3'o1: begin
                   if (tr[9]) begin
-                    return {"CLF ", $sformatf("%02o", tr[5:0])}; 
+                    return {"CLF ", $sformatf("%02o", tr[5:0])};
                   end
                   else begin
                     return {"STF ", $sformatf("%02o", tr[5:0])};
@@ -561,79 +556,79 @@ function automatic string mini_disasm(input logic [15:0] tr);
                 3'o3: begin
                   return {"SFS ", $sformatf("%02o", tr[5:0])};
                 end
-                3'o4: begin 
+                3'o4: begin
                   if (tr[11]) begin
                     if (tr[9]) begin
                       return {"MIB ", $sformatf("%02o,C", tr[5:0])};
-                    end 
+                    end
                     else begin
                       return {"MIB ", $sformatf("%02o", tr[5:0])};
-                    end                    
+                    end
                   end
                   else begin
                     if (tr[9]) begin
                       return {"MIA ", $sformatf("%02o,C", tr[5:0])};
-                    end 
-                    else begin 
+                    end
+                    else begin
                       return {"MIA ", $sformatf("%02o", tr[5:0])};
-                    end                    
+                    end
                   end
 
-                end                
-                3'o5: begin 
+                end
+                3'o5: begin
                   if (tr[11]) begin
                     if (tr[9]) begin
                       return {"LIB ", $sformatf("%02o,C", tr[5:0])};
-                    end 
-                    else begin 
+                    end
+                    else begin
                       return {"LIB ", $sformatf("%02o", tr[5:0])};
                     end
                   end
                   else begin
                     if (tr[9]) begin
                       return {"LIA ", $sformatf("%02o,C", tr[5:0])};
-                    end 
-                    else begin 
+                    end
+                    else begin
                       return {"LIA ", $sformatf("%02o", tr[5:0])};
-                    end                    
+                    end
                   end
                 end
                 3'o6: begin
                   if (tr[11]) begin
                       if (tr[9]) begin
                         return {"OTB ", $sformatf("%02o,C", tr[5:0])};
-                      end 
-                      else begin 
+                      end
+                      else begin
                         return {"OTB ", $sformatf("%02o", tr[5:0])};
-                      end                    
+                      end
                   end
                   else begin
                       if (tr[9]) begin
                         return {"OTA ", $sformatf("%02o,C", tr[5:0])};
-                      end 
-                      else begin 
+                      end
+                      else begin
                         return {"OTA ", $sformatf("%02o", tr[5:0])};
-                      end                      
-                  end 
+                      end
+                  end
                 end
                 3'o7: begin
                   if (tr[11]) begin
                       if (tr[9]) begin
                         return {"CLC ", $sformatf("%02o,C", tr[5:0])};
-                      end 
-                      else begin 
+                      end
+                      else begin
                         return {"CLC ", $sformatf("%02o", tr[5:0])};
-                      end   
+                      end
                   end
                   else begin
                       if (tr[9]) begin
                         return {"STC ", $sformatf("%02o,C", tr[5:0])};
-                      end 
-                      else begin 
+                      end
+                      else begin
                         return {"STC ", $sformatf("%02o", tr[5:0])};
-                      end                     
+                      end
                   end
-                end 
+                end
               endcase
             else
                 return "???";
@@ -660,14 +655,12 @@ function automatic string mini_disasm(input logic [15:0] tr);
     end
 endfunction
 
-
-// Kodkommentar: Returnera en tom fastbreddssträng för icke-minnesreferensinstruktioner.
+// Return an empty fixed-width string for non-memory-reference instructions.
 function automatic string blank_memref_info();
     return "                 ";  // 19 tecken: samma bredd som "M=001405 D=055555"
 endfunction
 
-
-// Kodkommentar: Avgör om instruktionen är en minnesreferensinstruktion.
+// Determine whether the instruction is a memory-reference instruction.
 function automatic logic is_memref_instr(input logic [15:0] tr);
     logic [5:0] ir;
     logic [3:0] op4;
@@ -676,23 +669,23 @@ function automatic logic is_memref_instr(input logic [15:0] tr);
         ir  = tr[15:10];
         op4 = ir[4:1];
 
-        // Kodkommentar: Shift/rotate-grupp är inte minnesreferens.
+        // The shift/rotate group is not a memory reference.
         if ((ir[5:2] == 4'o00) && !ir[0])
             return 1'b0;
 
-        // Kodkommentar: Alter/skip-grupp är inte minnesreferens.
+        // The alter/skip group is not a memory reference.
         if ((ir[5:2] == 4'o00) && ir[0])
             return 1'b0;
 
-        // Kodkommentar: I/O-grupp är inte minnesreferens.
+        // The I/O group is not a memory reference.
         if ((ir[5:2] == 4'o10) && ir[0])
             return 1'b0;
 
-        // Kodkommentar: MAC/övriga specialgrupper behandlas här som ej minnesreferens.
+        // MAC and other special groups are treated here as non-memory-reference instructions.
         if ((ir[5:2] == 4'o10) && !ir[0])
             return 1'b0;
 
-        // Kodkommentar: Endast de riktiga minnesreferensinstruktionerna returnerar sant.
+        // Only true memory-reference instructions return true.
         unique case (op4)
             4'o02,  // AND
             4'o03,  // JSB
@@ -715,9 +708,8 @@ function automatic logic is_memref_instr(input logic [15:0] tr);
     end
 endfunction
 
-
-// Kodkommentar: Läs ett operandord på samma sätt som CPU:n gör i INDIRECT/EXECUTE T1.
-// Kodkommentar: Adress 0 betyder A-register och adress 1 betyder B-register.
+// Read one operand word the same way the CPU does in INDIRECT/EXECUTE T1.
+// Address 0 means register A and address 1 means register B.
 function automatic logic [15:0] read_operand_word(
     input logic [14:0] addr,
     input logic [15:0] a_val,
@@ -733,12 +725,11 @@ function automatic logic [15:0] read_operand_word(
     end
 endfunction
 
-
-// Kodkommentar: Beräkna operandinformation för minnesreferensinstruktioner.
-// Kodkommentar: Returnerar
-// Kodkommentar:   "M=xxxxxx D=xxxxxx" för lyckad upplösning
-// Kodkommentar:   "M=ERROR  D=ERROR " vid fel i indirektionskedjan
-// Kodkommentar:   blanksträng för icke-minnesreferensinstruktioner
+// Compute operand information for memory-reference instructions.
+// Returns
+//   "M=xxxxxx D=xxxxxx" for successful resolution
+//   "M=ERROR  D=ERROR " on an indirect-chain error
+//   a blank string for non-memory-reference instructions
 function automatic string memref_info(
     input logic [15:0] tr,
     input logic [14:0] p_val,
@@ -753,42 +744,42 @@ function automatic string memref_info(
     int          level;
 
     begin
-        // Kodkommentar: Returnera bara blankt fält om detta inte är en minnesreferensinstruktion.
+        // Return only a blank field if this is not a memory-reference instruction.
         if (!is_memref_instr(tr))
             return blank_memref_info();
 
-        // Kodkommentar: Plocka ut instruktionsfälten.
+        // Extract the instruction fields.
         indirect     = tr[15];
         current_page = tr[10];
         off10        = tr[9:0];
 
-        // Kodkommentar: Samma direktadressregel som i CPU:n:
-        // Kodkommentar: TR[10] = 1 => current page, annars zero page.
+        // The same direct-addressing rule as in the CPU:
+        // TR[10] = 1 => current page, otherwise zero page.
         if (current_page)
             eff_addr = {p_val[14:10], off10};
         else
             eff_addr = {5'b00000, off10};
 
-        // Kodkommentar: Följ indirektionskedjan upp till 10 nivåer.
+        // Follow the indirect chain up to 10 levels.
         for (level = 0; level < 10; level++) begin
             data_word = read_operand_word(eff_addr, a_val, b_val);
 
-            // Kodkommentar: Om vi inte längre är indirekta är detta den slutliga operanden.
+            // If the instruction is no longer indirect, this is the final operand.
             if (!indirect)
                 return $sformatf("M=%06o D=%06o", eff_addr, data_word);
 
-            // Kodkommentar: Nästa länk i kedjan tas från det hämtade ordet.
+            // The next link in the chain comes from the fetched word.
             indirect = data_word[15];
             eff_addr = data_word[14:0];
         end
 
-        // Kodkommentar: Om vi fortfarande är indirekta efter 10 nivåer betraktas det som fel.
+        // If the instruction is still indirect after 10 levels, it is treated as an error.
         return "M=ERROR  D=ERROR ";
     end
 endfunction
 
-// Kodkommentar: Ta emot exakt en sträng från DUT över UART.
-// Kodkommentar: Varje mottagen byte jämförs direkt mot förväntad text.
+// Receive exactly one string from the DUT over UART.
+// Each received byte is compared directly against the expected text.
 task automatic uart_expect_string(
     ref logic serial_line,
     input string expected
@@ -815,9 +806,8 @@ task automatic uart_expect_string(
     end
 endtask
 
-
-// Kodkommentar: Skicka en hel sträng till DUT över UART.
-// Kodkommentar: Mellan varje tecken väntar vi en programmerbar extra fördröjning.
+// Send a full string to the DUT over UART.
+// A programmable extra delay is inserted between characters.
 task automatic uart_send_string(
     ref logic serial_line,
     input string text,
@@ -830,15 +820,14 @@ task automatic uart_send_string(
             ch = text[i][7:0];
             uart_send_byte( ch, serial_line);
 
-            // Kodkommentar: Extra paus mellan tecken om så önskas.
+            // Extra pause between characters if desired.
             if (inter_char_delay != 0)
                 #(inter_char_delay);
         end
     end
 endtask
 
-
-// Kodkommentar: Vänta på en prompt från DUT och skicka sedan ett svar.
+// Wait for a prompt from the DUT and then send a reply.
 task automatic uart_expect_and_respond(
     ref logic dut_tx,
     ref logic tb_rx,
@@ -856,26 +845,24 @@ task automatic uart_expect_and_respond(
     end
 endtask
 
-
-
 initial begin
     if (!$value$plusargs("DSN=%s", DSN))
       DSN = "101100";
-    // Kodkommentar: Vänta tills reset är släppt.
+    // Wait until reset is released.
     wait (rst_n == 1'b1);
 
-    // Kodkommentar: Första tomraden.
+    // First blank line.
     // uart_expect_string(uart_tx, "\r\n");
 
-    // Kodkommentar: Konfigurationsraden.
+    // Configuration line.
     // uart_expect_string(uart_tx, "2116, NO DMA, NO MPRT, 32K MEMORY\r\n");
 
-    // Kodkommentar: Andra tomraden.
+    // Second blank line.
     // uart_expect_string(uart_tx, "\r\n");
 
-    // Kodkommentar: Vänta på prompten och svara.
-    // Kodkommentar: Exempelresponsen här är bara ett exempel — byt till det
-    // Kodkommentar: exakt svar som diagnostikprogrammet förväntar sig.
+    // Wait for the prompt and reply.
+    // The example response here is only an example — replace it with the
+    // exact response expected by the diagnostic program.
     uart_expect_and_respond(
         uart_tx,
         uart_rx,
@@ -894,7 +881,6 @@ initial begin
         20_000ns
     );
 
-
     uart_expect_and_respond(
         uart_tx,
         uart_rx,
@@ -906,13 +892,12 @@ initial begin
     $display("Finished scripted UART exchange at time %0t", $time);
 end
 
-
-// Kodkommentar: Skriv ut disassembly-strängen med tydliga avgränsare
-// Kodkommentar: så att dolda tecken blir lättare att upptäcka.
+// Print the disassembly string with clear delimiters
+// so hidden characters are easier to spot.
 always @(posedge clk) begin
   if (!$value$plusargs("TRACE=%s", trace))
-    trace = "NO";   
-  if (trace == "YES") begin   
+    trace = "NO";
+  if (trace == "YES") begin
     if (rst_n && cpu.run_ff) begin
         if ((cpu.phase == 3'd0) && (cpu.tstate == 3'd2)) begin
             string a,b, dis, meminfo;
@@ -927,16 +912,15 @@ always @(posedge clk) begin
   end
 end
 
-
-  // Kodkommentar: Simulerad HP12597A-pappersremsläsare som matar byten från fil.
-  // Kodkommentar: När interfacet sätter READ aktivt läses nästa byte från filen
-  // Kodkommentar: och FEEDHOLE pulsas så att interfacet latchar datan.
+  // Simulated HP12597A paper tape reader that feeds bytes from a file.
+  // When the interface asserts READ, the next byte is read from the file
+  // and FEEDHOLE is pulsed so the interface latches the data.
   initial begin : paper_tape_reader
     ptr_datain   = 8'h00;
     ptr_feedhole = 1'b0;
 
-    // Kodkommentar: Tillåt att filnamnet skickas in som plusarg:
-    // Kodkommentar:   +PTR_FILE=min_tape.bin
+    // Allow the file name to be passed in as a plusarg:
+    //   +PTR_FILE=min_tape.bin
     if (!$value$plusargs("PTR_FILE=%s", ptr_filename))
       ptr_filename = "paper_tape.bin";
 
@@ -949,20 +933,20 @@ end
     $display("PTR: opened tape file %s", ptr_filename);
 
     forever begin
-      // Kodkommentar: Vänta tills läsaren begär nästa tecken.
+      // Wait until the reader requests the next character.
       @(posedge ptr_read);
 
-      // Kodkommentar: Läs nästa byte ur värdfilen.
+      // Read the next byte from the host file.
       ptr_c = $fgetc(ptr_fd);
 
       if (ptr_c < 0) begin
         $display("PTR: EOF on %s at time %0t", ptr_filename, $time);
 
-        // Kodkommentar: Vid EOF matar vi inte fler byten.
+        // At EOF, no more bytes are fed.
         disable paper_tape_reader;
       end
       if (!$value$plusargs("TRACE=%s", trace))
-        trace = "NO";   
+        trace = "NO";
       if (trace == "YES") begin
         $display("PTR: byte %03o (0x%02h) at time %0t", ptr_c[7:0], ptr_c[7:0], $time);
       end
@@ -1007,17 +991,17 @@ end
     // LOAD A with switches
     sw = 16'o000000;
     pulse_btn(load_a_btn);
-    
+
     // LOAD B with switches
     sw = 16'o000000;
-    pulse_btn(load_b_btn);    
+    pulse_btn(load_b_btn);
 
    // Example: set address via switches and LOAD ADDRESS
     if (pretest == "YES")
       sw = 16'o000002;  // run pre-test
-    else 
+    else
       sw = 16'o000100;    // skip pre-test and go directly to configurator in conversational mode.
-    pulse_btn(load_addr_btn);    
+    pulse_btn(load_addr_btn);
     sw = 16'o00010;
     // Enable single-cycle mode and do two phase-steps
     //pulse_btn(single_cycle_btn); // enter single mode + arm one phase
@@ -1034,47 +1018,47 @@ end
     $finish;
   end
 
-  // Övervaka när CPU:n stannar
+  // Monitor when the CPU stops
   always @(negedge cpu.run_ff) begin
-      // Rapportera CPU-status vid halt
+      // Report CPU status at halt
       $display("TIME %0t: CPU HALTED P=%06o IR=%06o TR=%06o A=%06o B=%06o",
               $time, cpu.P, cpu.IR, cpu.TR, cpu.A, cpu.B);
 
       if (cpu.P == 16'o000445) begin
-          // Vänta lite så att haltläget hinner stabiliseras
+          // Wait a little so the halt state can settle
           #1;
 
-          // Lägg in värdet i switchregistret
+          // Load the value into the switch register
           sw = 16'o177777;
           $display("TIME %0t: Loaded switch register with %06o", $time, sw);
 
-          // Vänta lite innan run-knappen pulsas
+          // Wait a little before pulsing the RUN button
           #1;
 
-          // Starta CPU:n igen
+          // Start the CPU again
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
       end
       if (cpu.P == 16'o000452) begin
-          // Vänta lite så att haltläget hinner stabiliseras
+          // Wait a little so the halt state can settle
           #1;
 
-          // Lägg in värdet i switchregistret
+          // Load the value into the switch register
           sw = 16'o000000;
           $display("TIME %0t: Loaded switch register with %06o", $time, sw);
 
-          // Vänta lite innan run-knappen pulsas
+          // Wait a little before pulsing the RUN button
           #1;
 
-          // Starta CPU:n igen
+          // Start the CPU again
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
-      end 
+      end
       if ((cpu.TR == 16'o102077) && (cpu.P == 16'o077237)) begin
-          // Vänta lite så att haltläget hinner stabiliseras
+          // Wait a little so the halt state can settle
           #1;
 
-          // Lägg in värdet i switchregistret
+          // Load the value into the switch register
           pulse_btn(preset_btn);
           sw = 16'o000100;
           pulse_btn(load_addr_btn);
@@ -1083,18 +1067,18 @@ end
           pulse_btn(load_b_btn);
           pulse_btn(run_btn);
 
-          // Vänta lite innan run-knappen pulsas
+          // Wait a little before pulsing the RUN button
           #1;
 
-          // Starta CPU:n igen
+          // Start the CPU again
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
-      end   
+      end
       else if ((cpu.TR == 16'o102077) && (cpu.P != 16'o077237)) begin
         #1;
         repeat (20) @(posedge clk);
         $finish;
-      end         
+      end
   end
 
 endmodule
