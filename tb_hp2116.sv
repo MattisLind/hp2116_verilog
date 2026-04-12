@@ -50,6 +50,9 @@ module tb_hp2116;
 
   // Kodkommentar: Standardfil för pappersremsan. Kan överskuggas med +PTR_FILE=...
   string ptr_filename;   
+  string DSN;
+  string pretest;
+  string trace;
 
   // CPU instance
   hp2116_cpu #(
@@ -179,7 +182,10 @@ module tb_hp2116;
                expected, received, $time);
       end
       else begin
-        $display("UART OK: 0x%02h at time %0t", received, $time);
+        if (!$value$plusargs("TRACE=%s", trace))
+          trace = "NO";   
+        if (trace == "YES") 
+          $display("UART OK: 0x%02h at time %0t", received, $time);
       end
     end
   endtask
@@ -190,10 +196,14 @@ module tb_hp2116;
     forever begin
       // Kodkommentar: Vänta på en byte från DUT:s sändare.
       uart_recv_byte(uart_tx, ch);
-      $display("UART TX byte: 0x%02h (%s) at time %0t",
+      if (!$value$plusargs("TRACE=%s", trace))
+        trace = "NO";   
+      if (trace == "YES") begin        
+        $display("UART TX byte: 0x%02h (%s) at time %0t",
                ch,
                (ch >= 8'h20 && ch <= 8'h7e) ? {byte'(ch)} : ".",
                $time);
+      end
     end
   end
 
@@ -849,6 +859,8 @@ endtask
 
 
 initial begin
+    if (!$value$plusargs("DSN=%s", DSN))
+      DSN = "101100";
     // Kodkommentar: Vänta tills reset är släppt.
     wait (rst_n == 1'b1);
 
@@ -887,7 +899,7 @@ initial begin
         uart_tx,
         uart_rx,
         "\r\n\r\nREADY DIAG. INPUT DEVICE\r\n\r\nDSN(,SEQ.DIAG.EXECUT.).......",
-        "101002\r",
+        {DSN, "\r"},
         4_000ns,
         20_000ns
     );
@@ -898,6 +910,9 @@ end
 // Kodkommentar: Skriv ut disassembly-strängen med tydliga avgränsare
 // Kodkommentar: så att dolda tecken blir lättare att upptäcka.
 always @(posedge clk) begin
+  if (!$value$plusargs("TRACE=%s", trace))
+    trace = "NO";   
+  if (trace == "YES") begin   
     if (rst_n && cpu.run_ff) begin
         if ((cpu.phase == 3'd0) && (cpu.tstate == 3'd2)) begin
             string a,b, dis, meminfo;
@@ -909,6 +924,7 @@ always @(posedge clk) begin
             $display("TIME %020t  %s A=%s B=%s EXTEND=%1o OVERFLOW=%1o IE=%1o %06o %06o  %-20s", $time, meminfo, a, b, cpu.EXTEND, cpu.OVERFLOW, cpu.Interrupt_System_Enable, cpu.P, cpu.TR, dis);
         end
     end
+  end
 end
 
 
@@ -945,10 +961,11 @@ end
         // Kodkommentar: Vid EOF matar vi inte fler byten.
         disable paper_tape_reader;
       end
-
-      $display("PTR: byte %03o (0x%02h) at time %0t",
-               ptr_c[7:0], ptr_c[7:0], $time);
-
+      if (!$value$plusargs("TRACE=%s", trace))
+        trace = "NO";   
+      if (trace == "YES") begin
+        $display("PTR: byte %03o (0x%02h) at time %0t", ptr_c[7:0], ptr_c[7:0], $time);
+      end
       ptr_feed_byte(ptr_c[7:0]);
     end
   end
@@ -957,6 +974,8 @@ end
   // Test sequence demonstrating panel operations
   // ------------------------------------------------------------
   initial begin
+    if (!$value$plusargs("PRETEST=%s", pretest))
+      pretest = "NO";
     // Init
     rst_n = 1'b0;
     sw = 16'o000000;
@@ -994,8 +1013,10 @@ end
     pulse_btn(load_b_btn);    
 
    // Example: set address via switches and LOAD ADDRESS
-    //sw = 16'o000002;  // run pre-test
-    sw = 16'o000100;    // skip pre-test and go directly to configurator in conversational mode.
+    if (pretest == "YES")
+      sw = 16'o000002;  // run pre-test
+    else 
+      sw = 16'o000100;    // skip pre-test and go directly to configurator in conversational mode.
     pulse_btn(load_addr_btn);    
     sw = 16'o00010;
     // Enable single-cycle mode and do two phase-steps
@@ -1049,7 +1070,7 @@ end
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
       end 
-      if (cpu.P == 16'o077237) begin
+      if ((cpu.TR == 16'o102077) && (cpu.P == 16'o077237)) begin
           // Vänta lite så att haltläget hinner stabiliseras
           #1;
 
@@ -1068,7 +1089,12 @@ end
           // Starta CPU:n igen
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
-      end            
+      end   
+      else if ((cpu.TR == 16'o102077) && (cpu.P != 16'o077237)) begin
+        #1;
+        repeat (20) @(posedge clk);
+        $finish;
+      end         
   end
 
 endmodule
