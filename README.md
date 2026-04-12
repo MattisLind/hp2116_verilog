@@ -4,19 +4,18 @@ This is a a project mostly done to learn Verilog a bit. The idea is to make a im
 
 I use Vertilator running in a Docker container to compile and run the verilog code and the gtkwave to view the resulting wavforms.
 
-```
-docker run --rm -it \                                                 
-  -v "$PWD":/work -w /work \
-  verilator/verilator:latest \
-  -Wall -Wno-fatal -Wno-UNUSEDSIGNAL --binary --binary --sv --trace-vcd tb_hp2116.sv hp2116_cpu.sv --top-module tb_hp2116
-```
+There is a `build_all.sh` script that runs through a run of four CPU diagnoistics:
+1. Pretest in Diagnostic Configurator binary
+2. Memory reference instructions diagnostic
+3. Alter Skip instructions group diagnostic
+4. Shift rotate instructions group diagnostic
 
-and 
+These four prove that the basic instruction set of the HP2116 is working as intended.
 
-```docker run --rm -it \                                                 
-  -v "$PWD":/work -w /work \
-  --entrypoint /work/obj_dir/Vtb_hp2116 \
-  verilator/verilator:latest
-```
+build_all.sh can be run with tracing if you specify the first argument as ON.
+
+```build_all.sh ON```
+
+
 
 
