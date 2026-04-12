@@ -10,4 +10,4 @@ fi
 # Running Alter / Skip instruction group diagnostic
 ./build_hp2116.sh 24396-1.abs 101001 NO $TRACE
 # Running Shift / Rotate instruction group diagnostic
-./build_hp2116.sh 24396-13601_file3_with_trailer.abin 101002 YES $TRACE
+./build_hp2116.sh 24396-13601_file3_with_trailer.abin 101002 NO $TRACE
