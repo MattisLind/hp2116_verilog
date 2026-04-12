@@ -17,5 +17,12 @@ build_all.sh can be run with tracing if you specify the first argument as ON.
 ```build_all.sh ON```
 
 
+The next step would be to implement DMA support and then the 13210A disk controller for the 7900 disk drives.
+
+I use GTKwave for debugging and analysing the system. I added python tools that allow to get the mnememonic into the display. This tool is `hp21xx_gtkwave_filter.py` and when in gtkwave it is possible to select a signal and then right press on it and select "Data format". From the foldout menu I then select "Translate filter process" -> "Enable and select". Here I can the select the above mentioned python-script and enable it
+
+![GTKwave](HP2116_in_GTKwave.png)
+
+
 
 
