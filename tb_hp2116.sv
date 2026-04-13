@@ -20,7 +20,7 @@ module tb_hp2116;
   localparam time         UART_BIT_TIME = 400ns;
 
   logic clk, rst_n;
-
+  logic [15:0] saved_A;
   // Switch register
   logic [15:0] sw;
 
@@ -40,6 +40,7 @@ module tb_hp2116;
   logic [16-1:0] mem [0:MEM_WORDS-1];
   logic uart_rx;
   logic uart_tx;
+  logic read_command;
   logic [7:0] ptr_datain;
   logic [7:0] ptr_dataout;
   logic ptr_feedhole;
@@ -54,6 +55,25 @@ module tb_hp2116;
   string DSN;
   string pretest;
   string trace;
+
+    // Kodkommentar: Filhantering för simulerad pappersremsa via UART.
+  integer tty_punch_fd;
+  integer tty_read_fd;
+  integer tty_c;
+
+  // Kodkommentar: Tillståndsflaggor för fångst och återläsning.
+  logic tty_capture_enable;
+  logic tty_playback_active;
+
+  // Kodkommentar: Filnamn för temporär "pappersremsa".
+  string tty_tape_filename;
+
+    // Kodkommentar: Styrning för bakgrundsuppspelning av fångad UART-fil.
+  logic playback_request;
+  time  playback_inter_char_delay;
+  int tty_skip_count;
+  // Kodkommentar: Styr om återläsning från fil är tillåten eller stoppad.
+  logic playback_enable;
 
   // CPU instance
   hp2116_cpu #(
@@ -83,6 +103,7 @@ module tb_hp2116;
 
     .uart_rx(uart_rx),
     .uart_tx(uart_tx),
+    .read_command(read_command),
     .ptr_datain(ptr_datain),
     .ptr_dataout(ptr_dataout),
     .ptr_feedhole(ptr_feedhole),
@@ -190,22 +211,175 @@ module tb_hp2116;
     end
   endtask
 
-  initial begin
+  initial begin : uart_tx_monitor
     logic [7:0] ch;
 
     forever begin
-      // Wait for a byte from the DUT transmitter.
       uart_recv_byte(uart_tx, ch);
-      if (!$value$plusargs("TRACE=%s", trace))
-        trace = "NO";
-      if (trace == "YES") begin
-        $display("UART TX byte: 0x%02h (%s) at time %0t",
+
+      $display("UART TX byte: 0x%02h (%s) at time %0t",
                ch,
                (ch >= 8'h20 && ch <= 8'h7e) ? {byte'(ch)} : ".",
                $time);
+
+      if (tty_capture_enable && (tty_punch_fd != 0)) begin
+          // Kodkommentar: Hoppa över de första 40 tecknen (leader).
+          if (tty_skip_count < 40) begin
+              tty_skip_count++;
+          end
+          else begin
+              $fwrite(tty_punch_fd, "%c", ch);
+          end
       end
     end
   end
+
+
+  // Kodkommentar: Läs tillbaka den fångade "pappersremsan" via UART till DUT.
+  // Kodkommentar: Varje byte skickas med en extra paus mellan tecknen.
+  task automatic tty_playback_file(
+    input integer fd,
+    input time inter_char_delay
+  );
+    int c;
+    logic [7:0] ch;
+    begin
+      while (1) begin
+        c = $fgetc(fd);
+        if (c < 0)
+          break;
+
+        ch = c[7:0];
+
+        $display("UART RX playback byte: 0x%02h (%s) at time %0t",
+                 ch,
+                 (ch >= 8'h20 && ch <= 8'h7e) ? {byte'(ch)} : ".",
+                 $time);
+
+        uart_send_byte(ch, uart_rx);
+
+        if (inter_char_delay != 0)
+          #(inter_char_delay);
+      end
+    end
+  endtask
+
+
+  // Kodkommentar: Öppna temporärfil för att fånga UART-utdata.
+  task automatic tty_start_capture();
+    begin
+      if (tty_punch_fd != 0) begin
+        $fclose(tty_punch_fd);
+        tty_punch_fd = 0;
+      end
+
+      tty_punch_fd = $fopen(tty_tape_filename, "wb");
+      if (tty_punch_fd == 0) begin
+        $fatal(1, "Could not open %s for UART punch output", tty_tape_filename);
+      end
+      tty_skip_count = 0;
+      tty_capture_enable = 1'b1;
+      $display("TTY capture started: %s at time %0t", tty_tape_filename, $time);
+    end
+  endtask
+
+
+  // Kodkommentar: Stäng fångstfilen och förbered återläsning.
+  task automatic tty_stop_capture_and_rewind();
+    begin
+      tty_capture_enable = 1'b0;
+
+      if (tty_punch_fd != 0) begin
+        $fclose(tty_punch_fd);
+        tty_punch_fd = 0;
+      end
+
+      if (tty_read_fd != 0) begin
+        $fclose(tty_read_fd);
+        tty_read_fd = 0;
+      end
+
+      tty_read_fd = $fopen(tty_tape_filename, "rb");
+      if (tty_read_fd == 0) begin
+        $fatal(1, "Could not reopen %s for UART playback", tty_tape_filename);
+      end
+
+      $display("TTY capture stopped and rewound: %s at time %0t", tty_tape_filename, $time);
+    end
+  endtask
+
+
+
+  // Kodkommentar: Begär att bakgrundsprocessen ska starta uppspelning.
+  task automatic tty_request_playback();
+    begin
+      if (tty_read_fd == 0)
+        $fatal(1, "TTY playback requested but no read file is open");
+      playback_enable = 1'b1;
+      playback_request = 1'b1;
+    end
+  endtask
+
+task automatic tty_stop_playback();
+  begin
+    playback_enable = 1'b0;
+    $display("TTY playback stopped at time %0t", $time);
+  end
+endtask
+
+// Kodkommentar: Bakgrundsprocess som utför playback när den begärs.
+initial begin : tty_playback_daemon
+  forever begin
+    @(posedge playback_request);
+    playback_request = 1'b0;
+
+    tty_playback_active = 1'b1;
+    tty_playback_file_on_demand(tty_read_fd);
+    tty_playback_active = 1'b0;
+
+    $display("TTY playback finished at time %0t", $time);
+  end
+end
+
+  // Kodkommentar: Vänta tills interfacet begär en ny byte.
+  task automatic wait_reader_request();
+    begin
+      if (!read_command)
+        @(posedge read_command);
+    end
+  endtask
+
+
+  // Kodkommentar: Skicka tillbaka fångad teletype-data en byte i taget,
+  // Kodkommentar: styrt av läsarinterfacets read-begäran.
+  task automatic tty_playback_file_on_demand(
+    input integer fd
+  );
+    int c;
+    logic [7:0] ch;
+    begin
+      while (1) begin
+        wait_reader_request();
+
+        c = $fgetc(fd);
+        if (c < 0)
+          break;
+
+        ch = c[7:0];
+
+        $display("UART RX on-demand byte: 0x%02h (%s) at time %0t",
+                 ch,
+                 (ch >= 8'h20 && ch <= 8'h7e) ? {byte'(ch)} : ".",
+                 $time);
+
+        uart_send_byte(ch, uart_rx);
+
+        // Kodkommentar: Vänta ut den aktuella read-begäran innan nästa byte.
+        while (playback_enable && read_command)
+        @(posedge clk);
+      end
+    end
+  endtask
 
   // Feed one byte into the simulated paper tape reader.
   // The data is made stable before feedhole and feedhole stays active across
@@ -829,7 +1003,7 @@ endtask
 
 // Wait for a prompt from the DUT and then send a reply.
 task automatic uart_expect_and_respond(
-    ref logic dut_tx,
+    ref logic cpu_tx,
     ref logic tb_rx,
     input string expected_prompt,
     input string response,
@@ -837,7 +1011,7 @@ task automatic uart_expect_and_respond(
     input time after_match_delay
 );
     begin
-        uart_expect_string(dut_tx, expected_prompt);
+        uart_expect_string(cpu_tx, expected_prompt);
         if (after_match_delay != 0)
             #(after_match_delay);
         $display("UART sending response: \"%s\" at time %0t", response, $time);
@@ -969,14 +1143,20 @@ end
     preset_btn = 0; run_btn = 0; halt_btn = 0;
     load_mem_btn = 0; load_a_btn = 0; load_b_btn = 0;
     load_addr_btn = 0; disp_mem_btn = 0; single_cycle_btn = 0;
-
+    tty_punch_fd       = 0;
+    tty_read_fd        = 0;
+    tty_capture_enable = 1'b0;
+    tty_playback_active = 1'b0;
+    tty_tape_filename  = "tty_punch.tmp";
     mem_rdata = '0;
-
+    playback_request = 1'b0;
+    playback_inter_char_delay = 0ns;
     repeat (5) @(posedge clk);
     rst_n = 1'b1;
-
+    tty_skip_count = 0;
+    playback_enable = 1'b0;
     // Fill with HALT then load ABS
-    load_hp21xx_abs("24296.abs", /*do_fill_halt=*/1'b1);
+    load_hp21xx_abs("diagnostics/24296-60001_DSN000200_DIAGNOSTIC_CONFIGURATOR.abin", /*do_fill_halt=*/1'b1);
 
     // PRESET
     pulse_btn(preset_btn);
@@ -1006,7 +1186,7 @@ end
     // Enable single-cycle mode and do two phase-steps
     //pulse_btn(single_cycle_btn); // enter single mode + arm one phase
     pulse_btn(run_btn);          // RUN
-    repeat (300000000) @(posedge clk);  // CPU will advance one phase and stop (armed consumed)
+    repeat (900000000) @(posedge clk);  // CPU will advance one phase and stop (armed consumed)
 
     //pulse_btn(single_cycle_btn); // arm another phase
     repeat (50) @(posedge clk);
@@ -1038,7 +1218,7 @@ end
           // Start the CPU again
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
-      end
+      end else
       if (cpu.P == 16'o000452) begin
           // Wait a little so the halt state can settle
           #1;
@@ -1053,7 +1233,7 @@ end
           // Start the CPU again
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
-      end
+      end else
       if ((cpu.TR == 16'o102077) && (cpu.P == 16'o077237)) begin
           // Wait a little so the halt state can settle
           #1;
@@ -1063,10 +1243,15 @@ end
           sw = 16'o000100;
           pulse_btn(load_addr_btn);
           sw = 16'o000000;
+          saved_A = cpu.A;
           pulse_btn(load_a_btn);
           pulse_btn(load_b_btn);
           pulse_btn(run_btn);
-
+          $display("A=%06o", saved_A);
+          if (saved_A == 16'o104003) sw = 16'o000010;
+          else if (saved_A == 16'o146200) sw = 16'o000011;
+          else sw = 16'o000000;
+          $display("sw=%06o", sw);
           // Wait a little before pulsing the RUN button
           #1;
 
@@ -1077,6 +1262,45 @@ end
       else if ((cpu.TR == 16'o102077) && (cpu.P != 16'o077237)) begin
         #1;
         repeat (20) @(posedge clk);
+        $display("Diag passed", $time);
+        $finish;
+      end else if (cpu.TR == 16'o102074) begin
+        sw = 16'o000000; 
+        #1
+        pulse_btn(run_btn);
+        #1
+      end else if ((cpu.TR == 16'o102024) && (DSN=="104003")) begin 
+        pulse_btn(preset_btn);
+        #1
+        pulse_btn(run_btn);
+      end else if ((cpu.TR == 16'o102030) && (DSN=="104003")) begin 
+        #1
+        tty_start_capture();
+        #1
+        pulse_btn(run_btn);
+        $display("TIME %0t: Started TTY capture and resumed CPU", $time);
+      end else if ((cpu.TR == 16'o102031) && (DSN=="104003")) begin 
+        #1
+        pulse_btn(run_btn);
+        #1
+        tty_request_playback();
+        $display("TIME %0t: Started TTY playback and resumed CPU", $time);
+      end else if ((cpu.TR == 16'o102045) && (DSN=="104003")) begin 
+        #1
+        tty_stop_capture_and_rewind();
+        #1
+        pulse_btn(run_btn);
+        #1
+        $display("TIME %0t: Set punch OFF", $time);
+      end else if ((cpu.TR == 16'o102046) && (DSN=="104003")) begin 
+        #1
+        tty_stop_playback();
+        #1
+        pulse_btn(run_btn);
+        #1
+        $display("TIME %0t: Set reader OFF", $time);
+      end else begin
+        $display("Diag failed", $time);
         $finish;
       end
   end

@@ -57,7 +57,8 @@ module hp12531c #(
   input  logic         bioo_n,
   input  logic         sfsb_or_bioi_n,
   input  logic         uart_rx,
-  output logic         uart_tx
+  output logic         uart_tx,
+  output logic         read_command
 );
 
   //--------------------------------------------------------------------------
@@ -133,7 +134,7 @@ module hp12531c #(
     edt  = 1'b0;
 
     serial_in_or_flag = uart_rx | flag_ff;
-
+    read_command = read_ff;
   end
 
     // Map the old step names onto the synchronous counter

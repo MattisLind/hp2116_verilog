@@ -50,6 +50,7 @@ module hp2116_cpu #(
   output logic         mem_we,
   input  logic         uart_rx,
   output logic         uart_tx,
+  output logic         read_command,
   input  logic [7:0]   ptr_datain,
   output logic [7:0]   ptr_dataout,
   input  logic         ptr_feedhole,
@@ -73,7 +74,6 @@ module hp2116_cpu #(
   // The I register stores only instruction bits 15..10.
   logic [5:0]  IR;
 
-  logic IEN;
   logic RUN;
 
   logic prl;
@@ -117,7 +117,7 @@ module hp2116_cpu #(
   logic skf11;
 
   assign run_ff = RUN;
-  assign ien_ff = IEN;
+  assign ien_ff = Interrupt_System_Enable;
 
   //--------------------------------------------------------------------------
   // T-state enum: T0..T7
@@ -185,7 +185,8 @@ hp12531c serial (
   .bioo_n(1'b0),
   .sfsb_or_bioi_n(1'b0),
   .uart_rx(uart_rx),
-  .uart_tx(uart_tx)
+  .uart_tx(uart_tx),
+  .read_command(read_command)
 );
 
 hp12597a ptr (
@@ -504,7 +505,7 @@ end
 
       IR <= 6'o00;
 
-      IEN <= 1'b0;
+      Interrupt_System_Enable <= 1'b0;
       RUN <= 1'b0;
 
       phase  <= PH_FETCH;
@@ -539,12 +540,14 @@ end
       if (preset_btn) begin
         phase  <= PH_FETCH;
         tstate <= T0;
-        IEN    <= 1'b0;
+        Interrupt_System_Enable    <= 1'b0;
+        popio <= 1'b1;
         RUN    <= 1'b0;
 
         phase_step_armed   <= 1'b0;
         step_started_by_sc <= 1'b0;
       end else begin
+        popio <= 1'b0;
         // The HALT button stops execution immediately.
         if (halt_btn) begin
           RUN <= 1'b0;
