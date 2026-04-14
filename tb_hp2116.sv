@@ -671,12 +671,14 @@ function automatic string disasm_asg (input logic [15:0] tr);
       2'o1: result = append_part(result, $sformatf("CL%s", acc));
       2'o2: result = append_part(result, $sformatf("CM%s", acc));
       2'o3: result = append_part(result, $sformatf("CC%s", acc));
+      default: result = append_part(result, "");
     endcase
     if (tr[5]) result = append_part(result, "SEZ");
     case (tr[7:6])
       2'o1: result = append_part(result, "CLE");
       2'o2: result = append_part(result, "CME");
       2'o3: result = append_part(result, "CCE");
+      default: result = append_part(result, "");
     endcase
     if (tr[4]) result = append_part(result, $sformatf("SS%s", acc));
     if (tr[3]) result = append_part(result, $sformatf("SL%s", acc));
@@ -1068,9 +1070,9 @@ end
 
 // Print the disassembly string with clear delimiters
 // so hidden characters are easier to spot.
-always @(posedge clk) begin
+always @(posedge clk or negedge rst_n) begin
   if (!$value$plusargs("TRACE=%s", trace))
-    trace = "NO";
+    trace <= "NO";
   if (trace == "YES") begin
     if (rst_n && cpu.run_ff) begin
         if ((cpu.phase == 3'd0) && (cpu.tstate == 3'd2)) begin
@@ -1204,12 +1206,12 @@ end
       $display("TIME %0t: CPU HALTED P=%06o IR=%06o TR=%06o A=%06o B=%06o",
               $time, cpu.P, cpu.IR, cpu.TR, cpu.A, cpu.B);
 
-      if (cpu.P == 16'o000445) begin
+      if (cpu.P == 15'o000445) begin
           // Wait a little so the halt state can settle
           #1;
 
           // Load the value into the switch register
-          sw = 16'o177777;
+          sw <= 16'o177777;
           $display("TIME %0t: Loaded switch register with %06o", $time, sw);
 
           // Wait a little before pulsing the RUN button
@@ -1219,12 +1221,12 @@ end
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
       end else
-      if (cpu.P == 16'o000452) begin
+      if (cpu.P == 15'o000452) begin
           // Wait a little so the halt state can settle
           #1;
 
           // Load the value into the switch register
-          sw = 16'o000000;
+          sw <= 16'o000000;
           $display("TIME %0t: Loaded switch register with %06o", $time, sw);
 
           // Wait a little before pulsing the RUN button
@@ -1234,24 +1236,24 @@ end
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
       end else
-      if ((cpu.TR == 16'o102077) && (cpu.P == 16'o077237)) begin
+      if ((cpu.TR == 16'o102077) && (cpu.P == 15'o077237)) begin
           // Wait a little so the halt state can settle
           #1;
 
           // Load the value into the switch register
           pulse_btn(preset_btn);
-          sw = 16'o000100;
+          sw <= 16'o000100;
           pulse_btn(load_addr_btn);
-          sw = 16'o000000;
-          saved_A = cpu.A;
+          sw <= 16'o000000;
+          saved_A <= cpu.A;
           pulse_btn(load_a_btn);
           pulse_btn(load_b_btn);
           pulse_btn(run_btn);
           $display("A=%06o", saved_A);
-          if (saved_A == 16'o104003) sw = 16'o000010;
-          else if (saved_A == 16'o146200) sw = 16'o000011;
-          else if (saved_A == 16'o101220) sw = 16'o000012;
-          else sw = 16'o000000;
+          if (saved_A == 16'o104003) sw <= 16'o000010;
+          else if (saved_A == 16'o146200) sw <= 16'o000011;
+          else if (saved_A == 16'o101220) sw <= 16'o000012;
+          else sw <= 16'o000000;
           $display("sw=%06o", sw);
           // Wait a little before pulsing the RUN button
           #1;
@@ -1260,13 +1262,13 @@ end
           pulse_btn(run_btn);
           $display("TIME %0t: Pulsed run button", $time);
       end
-      else if ((cpu.TR == 16'o102077) && (cpu.P != 16'o077237)) begin
+      else if ((cpu.TR == 16'o102077) && (cpu.P != 15'o077237)) begin
         #1;
         repeat (20) @(posedge clk);
         $display("Diag passed", $time);
         $finish;
       end else if (cpu.TR == 16'o102074) begin
-        sw = 16'o000000; 
+        sw <= 16'o000000; 
         #1
         pulse_btn(run_btn);
         #1;

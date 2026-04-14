@@ -36,7 +36,7 @@ module hp12597a #(
   input  logic         sfs,
 
   // The higher select code is not used by the interface but is present on the connector.
-  input  logic         irqh,
+  output logic         irqh,
   input  logic         scl_h,
   input  logic         scm_h,
 
@@ -49,7 +49,7 @@ module hp12597a #(
 
   input  logic         run,
 
-  output logic         edt,
+  input  logic         edt,
   input  logic         pon,
   input  logic         bioo_n,
   input  logic         sfsb_or_bioi_n,
@@ -108,7 +108,7 @@ module hp12597a #(
     // In this first model only the lower flag line is driven.
     flgl = irq_ff;
     flgh = 1'b0;
-
+    irqh = 1'b0;
     // The skip line is driven only when the card is selected.
     skf  = (do_sfs && flag_ff) || (do_sfc && !flag_ff);
 
@@ -118,7 +118,6 @@ module hp12597a #(
 
     prl  = prh & ~(flag_ff & ien & control_ff);
     iob_in = 16'h0000;
-    edt  = 1'b0;
     if (do_ioi) iob_in [7:0] = datainreg;
 
   end

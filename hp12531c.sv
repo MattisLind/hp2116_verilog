@@ -1,9 +1,6 @@
 `timescale 1ns/1ps
 
 module hp12531c #(
-  parameter int unsigned CLOCK_HZ  = 50_000_000,
-  parameter int unsigned BAUD      = 625_000,
-  parameter int unsigned STOP_BITS = 2
 ) (
   input  logic         clk,
   input  logic         crs,
@@ -39,7 +36,7 @@ module hp12531c #(
   input  logic         sfs,
 
   // The higher select code is not used by the interface but is present on the connector.
-  input  logic         irqh,
+  output logic         irqh,
   input  logic         scl_h,
   input  logic         scm_h,
 
@@ -52,7 +49,7 @@ module hp12531c #(
 
   input  logic         run,
 
-  output logic         edt,
+  input  logic         edt,
   input  logic         pon,
   input  logic         bioo_n,
   input  logic         sfsb_or_bioi_n,
@@ -120,7 +117,7 @@ module hp12531c #(
     // In this first model only the lower flag line is driven.
     flgl = irq_ff;
     flgh = 1'b0;
-
+    irqh = 1'b0;
     // The skip line is driven only when the card is selected.
     skf  = (do_sfs && flag_ff) || (do_sfc && !flag_ff);
 
@@ -130,8 +127,6 @@ module hp12531c #(
 
     prl  = prh & ~(flag_ff & ien & control_ff);
 
-    // EDT is not used in this model.
-    edt  = 1'b0;
 
     serial_in_or_flag = uart_rx | flag_ff;
     read_command = read_ff;

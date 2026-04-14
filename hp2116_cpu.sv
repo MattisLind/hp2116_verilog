@@ -78,6 +78,7 @@ module hp2116_cpu #(
 
   logic prl;
   logic flgl;
+  logic flgl11;
   logic sfc;
   logic irq10;
   logic clf;
@@ -86,10 +87,9 @@ module hp2116_cpu #(
   logic iak;
   logic t3;
   logic skf;
-
+  logic flgh_dummy1, flgh_dummy2;
   logic popio;
 
-  logic srq;
   logic ioo;
   logic clc;
   logic stc;
@@ -97,14 +97,15 @@ module hp2116_cpu #(
   logic ioi;
   logic sfs;
 
-  logic irqh;
-
+  logic irqh_dummy1;
+  logic irqh_dummy2;
+  logic srq10, srq11;
   logic [15:0] iob_out;
   logic [15:0] iob_in10, iob_in11, iob_in_internal, dummy;
 
   logic sir;
   logic enf;
-  logic flgh;
+
 
   logic edt;
   logic pon;
@@ -159,7 +160,7 @@ hp12531c serial (
 
   .iob16_or_bios_n(1'b0),
 
-  .srq(srq),
+  .srq(srq10),
   .ioo(ioo),
   .clc(clc),
   .stc(stc),
@@ -167,7 +168,7 @@ hp12531c serial (
   .ioi(ioi),
   .sfs(sfs),
 
-  .irqh(irqh),
+  .irqh(irqh_dummy1),
   .scl_h(1'b0),
   .scm_h(1'b0),
 
@@ -176,7 +177,7 @@ hp12531c serial (
 
   .sir(sir),
   .enf(enf),
-  .flgh(flgh),
+  .flgh(flgh_dummy1),
 
   .run(RUN),
 
@@ -212,7 +213,7 @@ hp12597a ptr (
 
   .iob16_or_bios_n(1'b0),
 
-  .srq(srq),
+  .srq(srq11),
   .ioo(ioo),
   .clc(clc),
   .stc(stc),
@@ -220,7 +221,7 @@ hp12597a ptr (
   .ioi(ioi),
   .sfs(sfs),
 
-  .irqh(irqh),
+  .irqh(irqh_dummy2),
   .scl_h(1'b0),
   .scm_h(1'b0),
 
@@ -229,7 +230,7 @@ hp12597a ptr (
 
   .sir(sir),
   .enf(enf),
-  .flgh(flgh),
+  .flgh(flgh_dummy2),
 
   .run(RUN),
 
@@ -301,7 +302,7 @@ hp12597a ptr (
     op4 = IR[4:1];
     cz  = IR[0];
     ind = TR[15];
-
+    edt = 1'b0;
     // The low address bits come from the T register.
     off10 = TR[9:0];
 
@@ -542,7 +543,7 @@ end
       TR <= 16'o000000;
       P <= 15'o00000;
       M <= 15'o00000;
-
+      pon <= 1'b1;
       EXTEND   <= 1'b0;
       OVERFLOW <= 1'b0;
 
@@ -829,11 +830,16 @@ end
                           B <= iob_in_internal;
                         end
                       end
+                      default: begin
+                      end
                     endcase
                   end
                   case (TR[5:0])
                     6'o01: begin
                       //sw <= iob_out;
+                    end
+                    default: begin
+                      
                     end
                   endcase
                 end
