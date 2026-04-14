@@ -294,7 +294,7 @@ hp12597a ptr (
   logic        msc0, msc1,msc2,msc3,msc4,msc5,msc6,msc7,lsc0,lsc1,lsc2,lsc3,lsc4,lsc5,lsc6,lsc7;
   logic        skip_on_overflow;
   logic        sfs_intp, sfc_intp, skip_intp, skip_io;
-
+  logic [5:0] sc;
   logic set_control, clear_control, clear_flag, set_flag, set_overflow, clear_overflow, set_interrupt_control, clear_interrupt_control, set_interrupt_system_enable, clear_interrupt_system_enable;
   always_comb begin
     // The decoder uses the I register (IR) for the control field.
@@ -316,6 +316,7 @@ hp12597a ptr (
     is_srg_instr = (IR[5:2] == 4'o00) & ~IR[0];  // Shift / Rotate group
     is_asg_instr = (IR[5:2] == 4'o00) & IR[0];  // Alter / Skip group
     is_halt_instr = is_io_instr & (TR[8:6] == 3'o0);
+    sc = TR[5:0];
     msc0 = TR[5:3] == 3'o0;
     msc1 = TR[5:3] == 3'o1;
     msc2 = TR[5:3] == 3'o2;
@@ -373,7 +374,12 @@ always @* begin
     if (TR[5:0] < 6'o10) begin
         case (TR[5:0])
             6'o01: iob_in_internal = sw;
+            6'o02: iob_in_internal = dma_1_control_ff?dma_1_address_word:dma_1_block_length;
+            6'o03: iob_in_internal = dma_2_control_ff?dma_2_address_word:dma_2_block_length;
+            6'o06: iob_in_internal = dma_1_program_control_word;
+            6'o07: iob_in_internal = dma_2_program_control_word;
             default: iob_in_internal = 16'h0000;
+
         endcase
     end
     else begin
@@ -451,6 +457,43 @@ end
     // Address is driven from M and write data from T.
     mem_addr  = M;
     mem_wdata = TR;
+  end
+
+
+  logic [15:0] dma_1_program_control_word, dma_2_program_control_word;
+  logic [15:0] dma_1_address_word, dma_2_address_word;
+  logic [15:0] dma_1_block_length, dma_2_block_length;
+  logic dma_1_control_ff, dma_2_control_ff, dma_1_reg_selector, dma_2_reg_selector;
+
+  // DMA process
+  always_ff @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      dma_1_program_control_word <= 16'o000000; 
+      dma_2_program_control_word <= 16'o000000;
+      dma_1_address_word <= 16'o000000;
+      dma_2_address_word <= 16'o000000;
+      dma_1_block_length <= 16'o000000;
+      dma_2_block_length <= 16'o000000;
+      dma_1_control_ff <= 1'b0;
+      dma_2_control_ff <= 1'b0;
+      dma_1_reg_selector <= 1'b0;
+      dma_2_reg_selector <= 1'b0;
+    end else begin
+      if (clc & (sc == 6'o2)) dma_1_reg_selector <= 1'b0;
+      else if (stc & (sc == 6'o2)) dma_1_reg_selector <= 1'b1;
+      if (ioo & ~dma_1_reg_selector & (sc == 6'o2)) dma_1_address_word <= iob_out;
+      if (ioo & dma_1_reg_selector & (sc == 6'o2)) dma_1_block_length <= iob_out;
+      if (clc & (sc == 6'o3)) dma_2_reg_selector <= 1'b0;
+      else if (stc & (sc == 6'o3)) dma_2_reg_selector <= 1'b1;
+      if (ioo & ~dma_2_reg_selector & (sc == 6'o3)) dma_2_address_word <= iob_out;
+      if (ioo & dma_2_reg_selector & (sc == 6'o3)) dma_2_block_length <= iob_out;
+      if (ioo & (sc == 6'o6)) dma_1_program_control_word <= iob_out;
+      if (ioo & (sc == 6'o7)) dma_1_program_control_word <= iob_out;
+      if (clc & (sc == 6'o6)) dma_1_control_ff <= 1'b0;
+      if (clc & (sc == 6'o7)) dma_2_control_ff <= 1'b0;
+      if (stc & (sc == 6'o6)) dma_1_control_ff <= 1'b1;
+      if (stc & (sc == 6'o7)) dma_2_control_ff <= 1'b1;      
+    end
   end
 
   //--------------------------------------------------------------------------

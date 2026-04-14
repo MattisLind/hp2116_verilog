@@ -1040,7 +1040,7 @@ initial begin
     uart_expect_and_respond(
         uart_tx,
         uart_rx,
-        "\r\n2116, NO DMA, NO MPRT, 32K MEMORY\r\n\r\nLINE PRINTER (NO.,SC)........",
+        "\r\n2116, DMA, NO MPRT, 32K MEMORY\r\n\r\nLINE PRINTER (NO.,SC)........",
         "NONE\r",
         4_000ns,
         20_000ns
@@ -1250,6 +1250,7 @@ end
           $display("A=%06o", saved_A);
           if (saved_A == 16'o104003) sw = 16'o000010;
           else if (saved_A == 16'o146200) sw = 16'o000011;
+          else if (saved_A == 16'o101220) sw = 16'o000012;
           else sw = 16'o000000;
           $display("sw=%06o", sw);
           // Wait a little before pulsing the RUN button
@@ -1268,7 +1269,7 @@ end
         sw = 16'o000000; 
         #1
         pulse_btn(run_btn);
-        #1
+        #1;
       end else if ((cpu.TR == 16'o102024) && (DSN=="104003")) begin 
         pulse_btn(preset_btn);
         #1
