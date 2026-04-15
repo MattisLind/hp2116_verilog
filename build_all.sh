@@ -41,7 +41,7 @@ fi
 #./build_hp2116.sh diagnostics/24318-16001_DSN141103_I_O_INSTR_GROUP_I_O_CHANNEL_EXTENDER.abin 141103 NO $TRACE
 
 # Running General Purpose Register diagnostic - diag failed - not implemented
-#./build_hp2116.sh diagnostics/24391-16001_DSN143300_GENERAL_PURPOSE_REGISTER.abin 143300 NO $TRACE
+./build_hp2116.sh diagnostics/24391-16001_DSN143300_GENERAL_PURPOSE_REGISTER.abin 143300 NO $TRACE
 
 # Running Direct Memory Access diagnostic - diag failed - not implemented
 #./build_hp2116.sh diagnostics/24322-16002_DSN101220_DIRECT_MEMORY_ACCESS_2100_21MX.abin 101220 NO $TRACE
