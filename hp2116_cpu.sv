@@ -78,7 +78,7 @@ module hp2116_cpu #(
 
   logic prl;
   logic flgl;
-  logic flgl11;
+  logic flgl11, flgl12;
   logic sfc;
   logic irq10;
   logic clf;
@@ -87,7 +87,7 @@ module hp2116_cpu #(
   logic iak;
   logic t3;
   logic skf;
-  logic flgh_dummy1, flgh_dummy2;
+  logic flgh_dummy1, flgh_dummy2, flgh_dummy3;
   logic popio;
 
   logic ioo;
@@ -99,9 +99,10 @@ module hp2116_cpu #(
 
   logic irqh_dummy1;
   logic irqh_dummy2;
-  logic srq10, srq11;
+  logic irqh_dummy3;
+  logic srq10, srq11, srq12;
   logic [15:0] iob_out;
-  logic [15:0] iob_in10, iob_in11, iob_in_internal, dummy;
+  logic [15:0] iob_in10, iob_in11, iob_in12, iob_in_internal, dummy;
 
   logic sir;
   logic enf;
@@ -113,12 +114,15 @@ module hp2116_cpu #(
 
   logic crs;
   logic prl11;
-  logic irq11;
-  logic skf10;
+  logic irq11, irq12;
+  logic skf10, skf12;
   logic skf11;
-
+  logic ptr_read_dummy;
+  logic [7:0] ptr_dataout_dummy;
+  logic prl12;
   assign run_ff = RUN;
   assign ien_ff = Interrupt_System_Enable;
+  logic [15:0] testconnector;
 
   //--------------------------------------------------------------------------
   // T-state enum: T0..T7
@@ -194,7 +198,7 @@ hp12597a ptr (
   .clk(clk),
   .crs(crs),
 
-  .prl(prl),
+  .prl(prl12),
   .flgl(flgl11),
   .sfc(sfc),
   .irql(irq11),
@@ -241,7 +245,88 @@ hp12597a ptr (
   .datain(ptr_datain),
   .dataout(ptr_dataout),
   .feedhole(ptr_feedhole),
-  .read(ptr_read)
+  .read(ptr_read),
+  .jumper_w4(1'b1),
+  .jumper_w9(1'b0)
+);
+
+
+
+hp12566b dmatest (
+  .clk(clk),
+  .crs(crs),
+
+  .prl(prl),
+  .flgl(flgl12),
+  .sfc(sfc),
+  .irql(irq12),
+  .clf(clf),
+  .ien(Interrupt_System_Enable),
+  .stf(stf),
+  .iak(iak),
+  .t3(t3),
+  .skf(skf12),
+
+  .scm_l(msc1),
+  .scl_l(lsc2),
+
+  .iog(is_io_instr),
+  .popio(popio),
+
+  .iob16_or_bios_n(1'b0),
+
+  .srq(srq12),
+  .ioo(ioo),
+  .clc(clc),
+  .stc(stc),
+  .prh(prl12),
+  .ioi(ioi),
+  .sfs(sfs),
+
+  .irqh(irqh_dummy3),
+  .scl_h(1'b0),
+  .scm_h(1'b0),
+
+  .iob_out(iob_out),
+  .iob_in(iob_in12),
+
+  .sir(sir),
+  .enf(enf),
+  .flgh(flgh_dummy3),
+
+  .run(RUN),
+
+  .edt(edt),
+  .pon(pon),
+  .bioo_n(1'b0),
+  .sfsb_or_bioi_n(1'b0),
+  .datain(testconnector),
+  .dataout(testconnector),
+  .flag(ptr_read_dummy),
+  .command(ptr_read_dummy),
+/*
+For the older 12578 DMA test - potentially the jumpers are for the 12556A board and not the 12566B board.
+They might differ??
+
+  .jumper_w1("B"), //  Position B: Positive True command signal
+  .jumper_w2("C"), //  Position C: ENF signal clears Device Command FF.
+  .jumper_w3("B"), //  Position B: Sets the Flag Buffer FF and strobes input data on the negative-going edge.
+  .jumper_w4("B"), //  Position B: Output data is continuously available to the 1/0 device 
+  .jumper_w5("IN"), // Position IN: Device Flag signal latches listed bits of the input data register. 
+  .jumper_w6("IN"), // Position IN: Device Flag signal latches listed bits of the input data register. 
+  .jumper_w7("IN"), // Position IN: Device Flag signal latches listed bits of the input data register. 
+  .jumper_w8("IN"), // Position IN: Device Flag signal latches listed bits of the input data register. 
+  .jumper_w9("A")   // Position A: Allows the CLC, CRS, and Device Flag signals to clear the Device Command FF.  
+*/
+  .jumper_w1("C"), //  Position C: Pulsed ground true signal
+  .jumper_w2("B"), //  Position B: Device Command FF clears on the negative-going edge of Device Flag signal.
+  .jumper_w3("B"), //  Position B: Sets the Flag Buffer FF and strobes input data on the negative-going edge.
+  .jumper_w4("B"), //  Position B: Output data is continuously available to the 1/0 device 
+  .jumper_w5("IN"), // Position IN: Device Flag signal latches listed bits of the input data register. 
+  .jumper_w6("IN"), // Position IN: Device Flag signal latches listed bits of the input data register. 
+  .jumper_w7("IN"), // Position IN: Device Flag signal latches listed bits of the input data register. 
+  .jumper_w8("IN"), // Position IN: Device Flag signal latches listed bits of the input data register. 
+  .jumper_w9("A")  //  Position A: Allows the CLC, CRS, and Device Flag signals to clear the Device Command FF.
 );
 
   //--------------------------------------------------------------------------
@@ -364,7 +449,7 @@ hp12597a ptr (
     sir = (tstate == T5);
     enf = (tstate == T2);
     crs = clc & msc0 & lsc0 | popio;
-    interrupt = irq10 & Interrupt_System_Enable & Interrupt_Control;
+    interrupt = (irq10 | irq11 | irq12)  & Interrupt_System_Enable & Interrupt_Control;
   end
 
 always @* begin
@@ -384,7 +469,7 @@ always @* begin
         endcase
     end
     else begin
-      iob_in_internal = iob_in10 | iob_in11;
+      iob_in_internal = iob_in10 | iob_in11 | iob_in12;
     end
 end
 
@@ -1059,6 +1144,12 @@ end
                 P <= P - 15'o00001;
                 if (irq10) begin
                   M <= 15'o000010;
+                end
+                else if (irq11) begin
+                  M <= 15'o000011;
+                end
+                else if (irq12) begin
+                  M <= 15'o000012;                                    
                 end
               end
             end
