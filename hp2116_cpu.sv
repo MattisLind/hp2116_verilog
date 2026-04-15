@@ -440,7 +440,7 @@ They might differ??
     sfs_intp = sfs & msc0 & lsc0 & Interrupt_System_Enable;
     sfc_intp = sfc & msc0 & lsc0 & ~Interrupt_System_Enable;
     skip_intp = sfc_intp | sfs_intp;
-    skip_io = skf10 | skf11 | skip_intp ;
+    skip_io = skf10 | skf11 | skf12 | skip_intp ;
     clf = clear_flag & (tstate == T4);
     stf = set_flag & (tstate == T3);
     stc = set_control & (tstate == T4);

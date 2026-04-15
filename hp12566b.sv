@@ -153,7 +153,7 @@ module hp12566b #(
 
     if (jumper_w1 == "A") command = ~command_ff;
     else if (jumper_w1 == "B") command = command_ff;
-    else if (jumper_w1 == "C") command = party_line_ff;
+    else if (jumper_w1 == "C") command = ~party_line_ff;
     // jumper W1 in position C is not yet supported.
     if (jumper_w2 == "A") flag_conditioned = flag;
     else if (jumper_w2 == "B") flag_conditioned = ~flag;

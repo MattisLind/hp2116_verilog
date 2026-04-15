@@ -1271,6 +1271,8 @@ end
       end else if (cpu.TR == 16'o102074) begin
         if (DSN == "101220") begin
           sw <= 16'o000400; 
+        end if (DSN == "143300") begin
+          sw <= 16'o006400; 
         end else begin
           sw <= 16'o000000; 
         end
