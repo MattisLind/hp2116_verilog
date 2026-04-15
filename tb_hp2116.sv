@@ -53,7 +53,7 @@ module tb_hp2116;
   // Default paper tape file. Can be overridden with +PTR_FILE=...
   string ptr_filename;
   string DSN;
-  string pretest;
+  string pretest, loadfile;
   string trace;
 
     // Kodkommentar: Filhantering för simulerad pappersremsa via UART.
@@ -74,7 +74,7 @@ module tb_hp2116;
   int tty_skip_count;
   // Kodkommentar: Styr om återläsning från fil är tillåten eller stoppad.
   logic playback_enable;
-
+  logic loader_protected_switch;
   // CPU instance
   hp2116_cpu #(
   ) cpu (
@@ -107,7 +107,8 @@ module tb_hp2116;
     .ptr_datain(ptr_datain),
     .ptr_dataout(ptr_dataout),
     .ptr_feedhole(ptr_feedhole),
-    .ptr_read(ptr_read)
+    .ptr_read(ptr_read),
+    .loader_protected_switch(loader_protected_switch)
   );
 
   // Clock
@@ -1134,8 +1135,11 @@ end
   // Test sequence demonstrating panel operations
   // ------------------------------------------------------------
   initial begin
-    if (!$value$plusargs("PRETEST=%s", pretest))
+    if (!$value$plusargs("PRETEST=%s", pretest) || pretest == "") 
       pretest = "NO";
+    if (!$value$plusargs("LOADFILE=%s", loadfile) || loadfile == "")
+      loadfile = "diagnostics/24296-60001_DSN000200_DIAGNOSTIC_CONFIGURATOR.abin";      
+    $display("LOADFILE=%s", loadfile);  
     // Init
     rst_n = 1'b0;
     sw = 16'o000000;
@@ -1158,7 +1162,7 @@ end
     tty_skip_count = 0;
     playback_enable = 1'b0;
     // Fill with HALT then load ABS
-    load_hp21xx_abs("diagnostics/24296-60001_DSN000200_DIAGNOSTIC_CONFIGURATOR.abin", /*do_fill_halt=*/1'b1);
+    load_hp21xx_abs(loadfile, /*do_fill_halt=*/1'b1);
 
     // PRESET
     pulse_btn(preset_btn);
@@ -1180,11 +1184,15 @@ end
 
    // Example: set address via switches and LOAD ADDRESS
     if (pretest == "YES")
-      sw = 16'o000002;  // run pre-test
+      sw = 16'o000002;  // run pre-test or diag
     else
       sw = 16'o000100;    // skip pre-test and go directly to configurator in conversational mode.
     pulse_btn(load_addr_btn);
     sw = 16'o00010;
+    if (loadfile =="diagnostics/24185-60001_Rev-A.abin") begin
+      loader_protected_switch = 1'b1;
+      sw = 16'o000012;
+    end
     // Enable single-cycle mode and do two phase-steps
     //pulse_btn(single_cycle_btn); // enter single mode + arm one phase
     pulse_btn(run_btn);          // RUN
@@ -1309,6 +1317,24 @@ end
         pulse_btn(run_btn);
         #1
         $display("TIME %0t: Set reader OFF", $time);
+      end else if ((cpu.TR == 16'o107076) && (loadfile =="diagnostics/24185-60001_Rev-A.abin")) begin
+        #1;
+        sw <= 16'b0000111000000000;
+        #1;
+        pulse_btn(run_btn);
+        #1;        
+      end else if ((cpu.TR == 16'o107077) && (loadfile =="diagnostics/24185-60001_Rev-A.abin")) begin
+        #1;
+        sw <= 16'o000100; 
+        #1;
+        pulse_btn(load_addr_btn);
+        #1;
+        sw <= 16'o000000;
+        #1
+        pulse_btn(preset_btn);
+        #1;
+        pulse_btn(run_btn);
+        #1;        
       end else begin
         $display("Diag failed", $time);
         $finish;

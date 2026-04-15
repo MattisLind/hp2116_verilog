@@ -8,7 +8,7 @@ fi
 
 # Första testet körs med YES som tredje argument
 # Running Diagnostic Configurator
-./build_hp2116.sh diagnostics/24296-60001_DSN000200_DIAGNOSTIC_CONFIGURATOR.abin 000200 YES $TRACE
+./build_hp2116.sh diagnostics/24296-60001_DSN000200_DIAGNOSTIC_CONFIGURATOR.abin 000200 YES $TRACE 
 
 # Running Memory Reference Instruction Group diagnostic
 ./build_hp2116.sh diagnostics/24315-16001_DSN101100_MEMORY_REFERENCE_INSTRUCTION_GROUP.abin 101100 NO $TRACE
@@ -18,6 +18,10 @@ fi
 
 # Running Shift Rotate Instruction Group diagnostic
 ./build_hp2116.sh diagnostics/24317-16001_DSN101002_SHIFT_ROTATE_INSTRUCTION_GROUP.abin 101002 NO $TRACE
+
+# Running the old DMA test by loading it directly into memory
+./build_hp2116.sh diagnostics/24296-60001_DSN000200_DIAGNOSTIC_CONFIGURATOR.abin 000200 YES $TRACE diagnostics/24185-60001_Rev-A.abin
+
 
 # Running Core Memory diagnostic - taking too long to execute
 #./build_hp2116.sh diagnostics/24323-16001_DSN102200_CORE_MEMORY_2100_16_15_14.abin 102200 NO $TRACE

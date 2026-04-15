@@ -38,6 +38,7 @@ module hp2116_cpu #(
   input  logic         load_addr_btn,
   input  logic         disp_mem_btn,
   input  logic         single_cycle_btn,
+  input  logic         loader_protected_switch,
 
   // Observability
   output logic         run_ff,
@@ -123,6 +124,8 @@ module hp2116_cpu #(
   assign run_ff = RUN;
   assign ien_ff = Interrupt_System_Enable;
   logic [15:0] testconnector;
+
+  logic unprotected;
 
   //--------------------------------------------------------------------------
   // T-state enum: T0..T7
@@ -450,6 +453,11 @@ They might differ??
     enf = (tstate == T2);
     crs = clc & msc0 & lsc0 | popio;
     interrupt = (irq10 | irq11 | irq12)  & Interrupt_System_Enable & Interrupt_Control;
+    if ((M >= 15'o77700) && loader_protected_switch) begin
+      unprotected = 1'b0;
+    end else begin
+      unprotected = 1'b1;
+    end
   end
 
 always @* begin
@@ -1052,7 +1060,7 @@ end
                     4'o02: // AND - And to A
                       A <= A & TR;
                     4'o03: //JSB - Jump to subroutine
-                      if ((M!= 15'o00000) && (M!= 15'o00001))
+                      if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
                         mem_we <= 1'b1;
                     4'o04: // XOR
                       A <= A ^ TR;
@@ -1063,7 +1071,7 @@ end
                     4'o06: // IOR - Inclusive OR
                       A <= A | TR;
                     4'o07:  // ISZ - Inrement memory and skip if zero
-                      if ((M!= 15'o00000) && (M!= 15'o00001))
+                      if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
                         mem_we <= 1'b1;
                     4'o10: // ADA - Add to A
                     begin
@@ -1094,10 +1102,10 @@ end
                     4'o15: // LDB - Load B from memory
                       B <= TR;
                     4'o16:
-                      if ((M!= 15'o00000) && (M!= 15'o00001))
+                      if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
                         mem_we <= 1'b1;
                     4'o17:
-                      if ((M!= 15'o00000) && (M!= 15'o00001))
+                      if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
                         mem_we <= 1'b1;
                   endcase
                 end
