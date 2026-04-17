@@ -124,7 +124,8 @@ module hp2116_cpu #(
   logic [15:0] testconnector;
 
   logic unprotected;
-
+  logic state34;
+  logic state45;
   //--------------------------------------------------------------------------
   // T-state enum: T0..T7
   //--------------------------------------------------------------------------
@@ -138,6 +139,7 @@ typedef enum logic [2:0] {
   T6 = 3'b101,
   T7 = 3'b100
 } tstate_t;
+
 
   tstate_t tstate;
 
@@ -433,6 +435,8 @@ They might differ??
     lsc5 = sc_mux[2:0] == 3'o5;
     lsc6 = sc_mux[2:0] == 3'o6;
     lsc7 = sc_mux[2:0] == 3'o7;
+    state34 = tstate[1] & ~tstate[0];
+    state45 = tstate[2] & tstate[1];
     // iog signal is the same as is_io_instr
     set_control = is_io_instr & ~IR[1] & (TR[8:6] == 3'o7);
     clear_control = is_io_instr & IR[1] & (TR[8:6] == 3'o7);
@@ -446,8 +450,8 @@ They might differ??
     clear_interrupt_system_enable = clear_flag & msc0 & lsc0;
     iak = (tstate == T0) & (phase == PH_FETCH) & Interrupt_Control;
     is_jmp = (op4 == 4'o5);
-    ioo = tstate[1] & ~tstate[0] & (((TR[8:6] == 3'o6) && (phase != PH_DMA)) | (dma_ioo));
-    ioi = tstate[2] &  tstate[1] & (((TR[8:6] == 3'o5) | (TR[8:6] == 3'o4)) && normal_instruction_execution | dma_ioi);
+    ioo = state34 & (((TR[8:6] == 3'o6) && normal_instruction_execution) | dma_ioo);
+    ioi = state45 & ((((TR[8:6] == 3'o5) | (TR[8:6] == 3'o4)) && normal_instruction_execution) | dma_ioi);
     iob_out = ioo ? (IR[1] ? B : A) : 16'h0000;
     sfs = is_io_instr & (TR[8:6] == 3'o3);
     sfc = is_io_instr & (TR[8:6] == 3'o2);
@@ -457,10 +461,10 @@ They might differ??
     skip_dma7 = (sfc & (sc == 6'o07) & ~dma_2_flag_ff) | (sfs & (sc == 6'o07) & dma_2_flag_ff);
     skip_intp = sfc_intp | sfs_intp;
     skip_io = skf10 | skf11 | skf12 | skip_intp | skip_dma6 | skip_dma7;
-    clf = ((clear_flag & normal_instruction_execution) | dma_clf) & (tstate == T4);
-    stf = set_flag & normal_instruction_execution & (tstate == T3);
-    stc = ((set_control & normal_instruction_execution)| dma_stc) & (tstate == T4);
-    clc = ((clear_control & normal_instruction_execution)| dma_clc) & (tstate == T4);
+    clf = ((clear_flag & normal_instruction_execution) | dma_clf) & state45;
+    stf = set_flag & normal_instruction_execution & state45;
+    stc = ((set_control & normal_instruction_execution)| dma_stc) & state34;
+    clc = ((clear_control & normal_instruction_execution)| dma_clc) & state45;
     t3 = (tstate == T3);
     sir = (tstate == T5);
     enf = (tstate == T2);

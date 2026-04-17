@@ -395,6 +395,9 @@ end
 
       // Keep feedhole active across a positive edge.
       @(negedge clk);
+      @(negedge clk);
+      @(negedge clk);
+      @(negedge clk);
       ptr_feedhole = 1'b0;
     end
   endtask
