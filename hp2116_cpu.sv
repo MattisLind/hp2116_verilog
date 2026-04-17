@@ -23,7 +23,7 @@
 module hp2116_cpu #(
 ) (
   input  logic         clk,
-  input  logic         rst_n,
+  input  logic         popio,
 
   // Switch register (stable)
   input  logic [15:0]  sw,
@@ -89,19 +89,17 @@ module hp2116_cpu #(
   logic t3;
   logic skf;
   logic flgh_dummy1, flgh_dummy2, flgh_dummy3;
-  logic popio;
 
   logic ioo;
   logic clc;
   logic stc;
-  logic prh;
   logic ioi;
   logic sfs;
 
   logic irqh_dummy1;
   logic irqh_dummy2;
   logic irqh_dummy3;
-  logic srq10, srq11, srq12;
+  logic srq10, srq11, srq12, srq;
   logic [15:0] iob_out;
   logic [15:0] iob_in10, iob_in11, iob_in12, iob_in_internal, dummy;
 
@@ -171,7 +169,7 @@ hp12531c serial (
   .ioo(ioo),
   .clc(clc),
   .stc(stc),
-  .prh(1'b1),
+  .prh(prl_out_from_dma_2),
   .ioi(ioi),
   .sfs(sfs),
 
@@ -379,12 +377,15 @@ They might differ??
   logic        is_mac_instr;
   logic        is_srg_instr;
   logic        is_asg_instr;
+  logic        is_mem_ref;
   logic        is_jmp;
   logic        msc0, msc1,msc2,msc3,msc4,msc5,msc6,msc7,lsc0,lsc1,lsc2,lsc3,lsc4,lsc5,lsc6,lsc7;
   logic        skip_on_overflow;
-  logic        sfs_intp, sfc_intp, skip_intp, skip_io;
+  logic        sfs_intp, sfc_intp, skip_intp, skip_io, skip_dma6, skip_dma7;
   logic [5:0] sc;
   logic set_control, clear_control, clear_flag, set_flag, set_overflow, clear_overflow, set_interrupt_control, clear_interrupt_control, set_interrupt_system_enable, clear_interrupt_system_enable;
+  logic normal_instruction_execution;
+  logic [5:0] sc_mux;
   always_comb begin
     // The decoder uses the I register (IR) for the control field.
     op4 = IR[4:1];
@@ -393,7 +394,7 @@ They might differ??
     edt = 1'b0;
     // The low address bits come from the T register.
     off10 = TR[9:0];
-
+    normal_instruction_execution = ~((phase == PH_DMA) || (phase == PH_INTERRUPT));
     // The current page comes from P[14:10].
     direct_addr = cz ? {P[14:10], off10} : {5'b00000, off10};
 
@@ -404,24 +405,34 @@ They might differ??
     is_mac_instr = (IR[5:2] == 4'o10) & ~IR[0];
     is_srg_instr = (IR[5:2] == 4'o00) & ~IR[0];  // Shift / Rotate group
     is_asg_instr = (IR[5:2] == 4'o00) & IR[0];  // Alter / Skip group
+    is_mem_ref = ~(is_srg_instr | is_asg_instr | is_io_instr | is_mac_instr);
     is_halt_instr = is_io_instr & (TR[8:6] == 3'o0);
     sc = TR[5:0];
-    msc0 = TR[5:3] == 3'o0;
-    msc1 = TR[5:3] == 3'o1;
-    msc2 = TR[5:3] == 3'o2;
-    msc3 = TR[5:3] == 3'o3;
-    msc4 = TR[5:3] == 3'o4;
-    msc5 = TR[5:3] == 3'o5;
-    msc6 = TR[5:3] == 3'o6;
-    msc7 = TR[5:3] == 3'o7;
-    lsc0 = TR[2:0] == 3'o0;
-    lsc1 = TR[2:0] == 3'o1;
-    lsc2 = TR[2:0] == 3'o2;
-    lsc3 = TR[2:0] == 3'o3;
-    lsc4 = TR[2:0] == 3'o4;
-    lsc5 = TR[2:0] == 3'o5;
-    lsc6 = TR[2:0] == 3'o6;
-    lsc7 = TR[2:0] == 3'o7;
+    if (phase == PH_DMA) begin
+      if (dma_1_active) begin
+        sc_mux = dma_1_program_control_word[5:0];
+      end else begin
+        sc_mux = dma_2_program_control_word[5:0];
+      end
+    end else begin
+       sc_mux = TR[5:0];
+    end
+    msc0 = sc_mux[5:3] == 3'o0;
+    msc1 = sc_mux[5:3] == 3'o1;
+    msc2 = sc_mux[5:3] == 3'o2;
+    msc3 = sc_mux[5:3] == 3'o3;
+    msc4 = sc_mux[5:3] == 3'o4;
+    msc5 = sc_mux[5:3] == 3'o5;
+    msc6 = sc_mux[5:3] == 3'o6;
+    msc7 = sc_mux[5:3] == 3'o7;
+    lsc0 = sc_mux[2:0] == 3'o0;
+    lsc1 = sc_mux[2:0] == 3'o1;
+    lsc2 = sc_mux[2:0] == 3'o2;
+    lsc3 = sc_mux[2:0] == 3'o3;
+    lsc4 = sc_mux[2:0] == 3'o4;
+    lsc5 = sc_mux[2:0] == 3'o5;
+    lsc6 = sc_mux[2:0] == 3'o6;
+    lsc7 = sc_mux[2:0] == 3'o7;
     // iog signal is the same as is_io_instr
     set_control = is_io_instr & ~IR[1] & (TR[8:6] == 3'o7);
     clear_control = is_io_instr & IR[1] & (TR[8:6] == 3'o7);
@@ -435,29 +446,32 @@ They might differ??
     clear_interrupt_system_enable = clear_flag & msc0 & lsc0;
     iak = (tstate == T0) & (phase == PH_FETCH) & Interrupt_Control;
     is_jmp = (op4 == 4'o5);
-    ioo = tstate[1] & ~tstate[0] & (TR[8:6] == 3'o6);
-    ioi = tstate[2] &  tstate[1] & ((TR[8:6] == 3'o5) | (TR[8:6] == 3'o4));
-    iob_out = ioo ? (IR[0] ? A : B) : 16'h0000;
+    ioo = tstate[1] & ~tstate[0] & (((TR[8:6] == 3'o6) && (phase != PH_DMA)) | (dma_ioo));
+    ioi = tstate[2] &  tstate[1] & (((TR[8:6] == 3'o5) | (TR[8:6] == 3'o4)) && normal_instruction_execution | dma_ioi);
+    iob_out = ioo ? (IR[1] ? B : A) : 16'h0000;
     sfs = is_io_instr & (TR[8:6] == 3'o3);
     sfc = is_io_instr & (TR[8:6] == 3'o2);
     sfs_intp = sfs & msc0 & lsc0 & Interrupt_System_Enable;
     sfc_intp = sfc & msc0 & lsc0 & ~Interrupt_System_Enable;
+    skip_dma6 = (sfc & (sc == 6'o06) & ~dma_1_flag_ff) | (sfs & (sc == 6'o06) & dma_1_flag_ff);
+    skip_dma7 = (sfc & (sc == 6'o07) & ~dma_2_flag_ff) | (sfs & (sc == 6'o07) & dma_2_flag_ff);
     skip_intp = sfc_intp | sfs_intp;
-    skip_io = skf10 | skf11 | skf12 | skip_intp ;
-    clf = clear_flag & (tstate == T4);
-    stf = set_flag & (tstate == T3);
-    stc = set_control & (tstate == T4);
-    clc = clear_control & (tstate == T4);
+    skip_io = skf10 | skf11 | skf12 | skip_intp | skip_dma6 | skip_dma7;
+    clf = ((clear_flag & normal_instruction_execution) | dma_clf) & (tstate == T4);
+    stf = set_flag & normal_instruction_execution & (tstate == T3);
+    stc = ((set_control & normal_instruction_execution)| dma_stc) & (tstate == T4);
+    clc = ((clear_control & normal_instruction_execution)| dma_clc) & (tstate == T4);
     t3 = (tstate == T3);
     sir = (tstate == T5);
     enf = (tstate == T2);
     crs = clc & msc0 & lsc0 | popio;
-    interrupt = (irq10 | irq11 | irq12)  & Interrupt_System_Enable & Interrupt_Control;
+    interrupt = (irq10 | irq11 | irq12 | dma_1_irq_ff | dma_2_irq_ff)  & Interrupt_System_Enable & Interrupt_Control;
     if ((M >= 15'o77700) && loader_protected_switch) begin
       unprotected = 1'b0;
     end else begin
       unprotected = 1'b1;
     end
+    srq = srq10 | srq11 | srq12;
   end
 
 always @* begin
@@ -549,19 +563,97 @@ end
   //--------------------------------------------------------------------------
   always_comb begin
     // Address is driven from M and write data from T.
-    mem_addr  = M;
-    mem_wdata = TR;
+    if (phase == PH_DMA) begin
+      if (dma_1_active) begin
+        mem_addr = dma_1_address_word[14:0]; 
+        mem_wdata = dma_1_storage_register; 
+      end else begin
+        mem_addr = dma_2_address_word[14:0]; 
+        mem_wdata = dma_2_storage_register;
+      end
+    end
+    else begin 
+      mem_addr  = M ;
+      mem_wdata = TR;
+    end
   end
+
+
 
 
   logic [15:0] dma_1_program_control_word, dma_2_program_control_word;
   logic [15:0] dma_1_address_word, dma_2_address_word;
   logic [15:0] dma_1_block_length, dma_2_block_length;
+  logic [15:0] dma_1_storage_register, dma_2_storage_register;
   logic dma_1_control_ff, dma_2_control_ff, dma_1_reg_selector, dma_2_reg_selector;
+  logic dma_1_flag_ff, dma_2_flag_ff, dma_1_flagbuffer_ff, dma_2_flagbuffer_ff, dma_1_irq_ff, dma_2_irq_ff;
+  logic prh_in_to_dma_1, prl_out_from_dma_1, prh_in_to_dma_2, prl_out_from_dma_2;
+  logic dma_1_active;
+  logic dma_1_end_of_transfer, dma_2_end_of_transfer;
+  logic dma_ioi, dma_ioo, dma_stc, dma_clc, dma_clf;
+
+
+  always_comb begin
+    // DMA combinatorial logic
+    prh_in_to_dma_1 = 1'b1;
+    prl_out_from_dma_1 = prh_in_to_dma_1 & ~(Interrupt_System_Enable & dma_1_flag_ff & dma_1_control_ff);
+    prh_in_to_dma_2 =prl_out_from_dma_1;
+    prl_out_from_dma_2 = prh_in_to_dma_2 & ~(Interrupt_System_Enable & dma_2_flag_ff & dma_2_control_ff);
+
+    if (dma_1_block_length[13:0]==14'o00000) dma_1_end_of_transfer = 1'b1;
+    else dma_1_end_of_transfer = 1'b0;
+    
+    if (dma_2_block_length[13:0]==14'o00000) dma_2_end_of_transfer = 1'b1;
+    else dma_2_end_of_transfer = 1'b0;
+
+    if (phase == PH_DMA) begin
+      if (dma_1_active & dma_1_program_control_word[15]) begin
+        dma_stc = 1'b1;
+      end
+      else if (~dma_1_active & dma_2_program_control_word[15]) begin
+        dma_stc = 1'b1;
+      end
+      else dma_stc = 1'b0;
+      if (dma_1_active & dma_1_program_control_word[13] & dma_1_end_of_transfer) begin
+        dma_clc = 1'b1;
+      end
+      else if (~dma_1_active & dma_2_program_control_word[13] & dma_2_end_of_transfer) begin
+        dma_clc = 1'b1;
+      end
+      else dma_clc = 1'b0; 
+      if (dma_1_active) begin
+        if (dma_1_address_word[15]) begin 
+          dma_ioi = 1'b1;
+          dma_ioo = 1'b0;
+        end 
+        else begin
+          dma_ioi = 1'b0;
+          dma_ioo = 1'b1;
+        end
+      end else begin
+        if (dma_2_address_word[15]) begin 
+          dma_ioi = 1'b1;
+          dma_ioo = 1'b0;
+        end
+        else begin 
+          dma_ioi = 1'b0;
+          dma_ioo = 1'b1;
+        end        
+      end 
+      dma_clf = 1'b1;
+    end else begin
+      dma_ioi = 1'b0;
+      dma_ioo = 1'b0;
+      dma_stc = 1'b0;
+      dma_clc = 1'b0;
+      dma_clf = 1'b0;
+    end    
+
+  end
 
   // DMA process
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
+  always_ff @(posedge clk or popio) begin
+    if (popio) begin
       dma_1_program_control_word <= 16'o000000; 
       dma_2_program_control_word <= 16'o000000;
       dma_1_address_word <= 16'o000000;
@@ -572,6 +664,8 @@ end
       dma_2_control_ff <= 1'b0;
       dma_1_reg_selector <= 1'b0;
       dma_2_reg_selector <= 1'b0;
+      dma_1_flagbuffer_ff <= 1'b0;
+      dma_2_flagbuffer_ff <= 1'b0;
     end else begin
       if (clc & (sc == 6'o2)) dma_1_reg_selector <= 1'b0;
       else if (stc & (sc == 6'o2)) dma_1_reg_selector <= 1'b1;
@@ -583,10 +677,35 @@ end
       if (ioo & dma_2_reg_selector & (sc == 6'o3)) dma_2_block_length <= iob_out;
       if (ioo & (sc == 6'o6)) dma_1_program_control_word <= iob_out;
       if (ioo & (sc == 6'o7)) dma_1_program_control_word <= iob_out;
-      if (clc & (sc == 6'o6)) dma_1_control_ff <= 1'b0;
-      if (clc & (sc == 6'o7)) dma_2_control_ff <= 1'b0;
+      if (crs | (clc & (sc == 6'o6))) dma_1_control_ff <= 1'b0;
+      if (crs | (clc & (sc == 6'o7))) dma_2_control_ff <= 1'b0;
       if (stc & (sc == 6'o6)) dma_1_control_ff <= 1'b1;
-      if (stc & (sc == 6'o7)) dma_2_control_ff <= 1'b1;      
+      if (stc & (sc == 6'o7)) dma_2_control_ff <= 1'b1;  
+
+      // DMA 1 flag_buffer, flag and irq
+      if ((clf & (sc == 6'o6)) |  (iak & dma_1_irq_ff)) dma_1_flagbuffer_ff <= 1'b0;
+      else if (popio | (stf & (sc == 6'o6)) | dma_1_end_of_transfer) dma_1_flagbuffer_ff <= 1'b1;
+
+      // flag flip/flop
+      if (dma_1_flagbuffer_ff & enf) dma_1_flag_ff <= 1'b1;
+      else if (clf & (sc == 6'o6)) dma_1_flag_ff <= 1'b0;
+
+      // irq flip/flop
+      if (sir & prh_in_to_dma_1 & dma_1_flagbuffer_ff & Interrupt_System_Enable & dma_1_flag_ff & dma_1_control_ff) dma_1_irq_ff <= 1'b1;
+      else if (enf) dma_1_irq_ff <= 1'b0;
+
+      // DMA 2 flag_buffer, flag and irq
+      if ((clf & (sc == 6'o7)) |  (iak & dma_2_irq_ff)) dma_2_flagbuffer_ff <= 1'b0;
+      else if (popio | (stf & (sc == 6'o7)) | dma_2_end_of_transfer) dma_2_flagbuffer_ff <= 1'b1;
+
+      // flag flip/flop
+      if (dma_2_flagbuffer_ff & enf) dma_2_flag_ff <= 1'b1;
+      else if ((clf & (sc == 6'o7))) dma_2_flag_ff <= 1'b0;
+
+      // irq flip/flop
+      if (sir & prh_in_to_dma_2 & dma_2_flagbuffer_ff & Interrupt_System_Enable & dma_2_flag_ff & dma_2_control_ff) dma_2_irq_ff <= 1'b1;
+      else if (enf) dma_2_irq_ff <= 1'b0;
+      
     end
   end
 
@@ -599,8 +718,8 @@ end
   logic run_press;
   logic sc_press;
 
-  always_ff @(posedge clk or negedge rst_n) begin
-    if (!rst_n) begin
+  always_ff @(posedge clk or ~popio) begin
+    if (popio) begin
       run_btn_d <= 1'b0;
       sc_btn_d  <= 1'b0;
     end else begin
@@ -627,10 +746,10 @@ end
   //--------------------------------------------------------------------------
   // Main sequential logic
   //--------------------------------------------------------------------------
-  always_ff @(posedge clk or negedge rst_n) begin
+  always_ff @(posedge clk or popio) begin
     logic [16:0] add_sum;
     add_sum = '0;
-    if (!rst_n) begin
+    if (popio) begin
       A <= 16'o000000;
       B <= 16'o000000;
       TR <= 16'o000000;
@@ -654,12 +773,10 @@ end
       step_started_by_sc <= 1'b0;
 
       panel_disp_pending <= 1'b0;
-      popio <= 1'b1;
 
     end else begin
       // Default is no memory write in this cycle.
       mem_we <= 1'b0;
-      popio <= 1'b0;
       //======================================================================
       // Front panel commands
       //======================================================================
@@ -678,13 +795,11 @@ end
         phase  <= PH_FETCH;
         tstate <= T0;
         Interrupt_System_Enable    <= 1'b0;
-        popio <= 1'b1;
         RUN    <= 1'b0;
 
         phase_step_armed   <= 1'b0;
         step_started_by_sc <= 1'b0;
       end else begin
-        popio <= 1'b0;
         // The HALT button stops execution immediately.
         if (halt_btn) begin
           RUN <= 1'b0;
@@ -940,14 +1055,11 @@ end
                 T7: begin
                   // FETCH completes at T7.
                   // Normally P advances to the next sequential instruction.
-                  if (interrupt) begin
-                    phase <= PH_INTERRUPT;
-                  end
-                  else if (is_halt_instr) begin
+                  if (is_halt_instr) begin
                     RUN   <= 1'b0;
                     M <= P + 15'o00001;
                     P <= P + 15'o00001;
-                    phase <= PH_FETCH;
+                    //phase <= PH_FETCH;
                   end
                   // HALT is recognized already here in FETCH/T7.
                   else if (is_srg_instr | is_asg_instr | is_io_instr) begin
@@ -958,19 +1070,19 @@ end
                   else if (is_jmp && !ind) begin
                     M     <= direct_addr;
                     P     <= direct_addr;
-                    phase <= PH_FETCH;
+                    //phase <= PH_FETCH;
                   end
                   // An indirect JMP proceeds to the indirect phase.
                   else if (is_jmp && ind) begin
                     M     <= direct_addr;
-                    phase <= PH_INDIRECT;
+                    //phase <= PH_INDIRECT;
                   end
                   // Other indirect memory-reference instructions
                   // also proceed through the indirect phase.
                   else if (ind) begin
                     //P <= P + 15'o00001;
                     M     <= direct_addr;
-                    phase <= PH_INDIRECT;
+                    //phase <= PH_INDIRECT;
                   end
 
                   else begin
@@ -978,8 +1090,9 @@ end
                     // address in M and then move to execute.
 
                     M     <= direct_addr;
-                    phase <= PH_EXECUTE;
+                    //phase <= PH_EXECUTE;
                   end
+
                 end
 
                 default: begin
@@ -1007,13 +1120,13 @@ end
                   // address is in T[14:0].
                   M <= TR[14:0];
                   if (ind) begin
-                    phase <= PH_INDIRECT;
+                    //phase <= PH_INDIRECT;
                   end
                   else if (is_jmp) begin
                     P     <= TR[14:0];
-                    phase <= PH_FETCH;
+                    //phase <= PH_FETCH;
                   end else begin
-                    phase <= PH_EXECUTE;
+                    //phase <= PH_EXECUTE;
                   end
                 end
 
@@ -1126,7 +1239,7 @@ end
                 T7: begin
                   // JMP and HALT are handled earlier and should
                   // therefore not be handled here.
-                  phase <= PH_FETCH;
+                  //phase <= PH_FETCH;
                   if (op4 == 4'o07 || op4 == 4'o12 || op4 == 4'o13) begin
                     P <= P + 15'o00001 + { 14'o0000, CARRY};
                     M <= P + 15'o00001 + { 14'o0000, CARRY};
@@ -1148,9 +1261,15 @@ end
             // ---------------------------------------------------------------
             PH_INTERRUPT: begin
               if (tstate == T7) begin
-                phase <= PH_FETCH;
+                //phase <= PH_FETCH;
                 P <= P - 15'o00001;
-                if (irq10) begin
+                if (dma_1_irq_ff) begin
+                  M <= 15'o000006;
+                end 
+                else if (dma_2_irq_ff) begin
+                  M <= 15'o000007;
+                end 
+                else if (irq10) begin
                   M <= 15'o000010;
                 end
                 else if (irq11) begin
@@ -1166,17 +1285,72 @@ end
             // DMA phase (stub)
             // ---------------------------------------------------------------
             PH_DMA: begin
+              if (tstate == T1) begin
+                if (dma_1_active & ~dma_1_program_control_word[15]) begin 
+                  if (dma_1_program_control_word[15] == 1'b0)
+                    dma_1_storage_register <= mem_rdata;
+                end else begin
+                  if (dma_1_program_control_word[15] == 1'b0)
+                    dma_2_storage_register <= mem_rdata;
+                end
+              end
+              if (tstate == T2) begin
+                if (dma_1_active) begin
+                  dma_1_block_length[13:0] <=  dma_1_block_length[13:0] + 14'o00001;  
+                end else begin
+                  dma_2_block_length[13:0] <=  dma_2_block_length[13:0] + 14'o00001;
+                end
+              end
               if (tstate == T7) begin
-                phase <= PH_FETCH;
+                //phase <= PH_FETCH;
               end
             end
 
             default: begin
               if (tstate == T7) begin
-                phase <= PH_FETCH;
+                //phase <= PH_FETCH;
               end
             end
           endcase
+          if (tstate == T7) begin
+            if (srq10 & dma_1_control_ff & dma_1_program_control_word[5:0] == 6'o10) begin
+              phase <= PH_DMA;  
+              dma_1_active <= 1'b1;  
+            end else if (srq10 & dma_2_control_ff &dma_2_program_control_word[5:0] == 6'o10) begin
+              phase <= PH_DMA; 
+              dma_1_active <= 1'b0;
+            end else if (srq11 & dma_1_control_ff & dma_1_program_control_word[5:0] == 6'o11) begin
+              phase <= PH_DMA; 
+              dma_1_active <= 1'b1;
+            end else if (srq11 & dma_2_control_ff & dma_2_program_control_word[5:0] == 6'o11) begin
+              phase <= PH_DMA; 
+              dma_1_active <= 1'b0;
+            end else if (srq12 & dma_1_control_ff & dma_1_program_control_word[5:0] == 6'o12) begin
+              phase <= PH_DMA; 
+              dma_1_active <= 1'b1;
+            end else if (srq12 & dma_2_control_ff & dma_2_program_control_word[5:0] == 6'o12) begin
+              phase <= PH_DMA; 
+              dma_1_active <= 1'b0;
+            end 
+            else if (interrupt & phase != PH_INTERRUPT) begin
+              phase <= PH_INTERRUPT;
+            end 
+            else if (is_mem_ref & ind & (phase == PH_INDIRECT || phase == PH_FETCH)) begin
+              phase <= PH_INDIRECT;
+            end
+            else if (is_jmp & (phase == PH_INDIRECT || phase == PH_FETCH)) begin
+              phase <= PH_FETCH;
+            end 
+            else if (phase == PH_INDIRECT) begin
+              phase <= PH_EXECUTE;
+            end 
+            else if ((phase == PH_FETCH) && is_mem_ref) begin
+              phase <= PH_EXECUTE; 
+            end
+            else begin
+              phase <= PH_FETCH;  
+            end
+          end
 
                   //==================================================================
             // Free-running modulo-8 T-state counter

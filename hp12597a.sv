@@ -129,8 +129,8 @@ module hp12597a #(
   //--------------------------------------------------------------------------
   // Main sequential logic
   //--------------------------------------------------------------------------
-  always_ff @(posedge clk or posedge crs) begin
-    if (crs) begin
+  always_ff @(posedge clk or popio) begin
+    if (popio) begin
       flag_ff       <= 1'b0;
       flag_buffer_ff <= 1'b1;
       irq_ff        <= 1'b0;
@@ -143,7 +143,7 @@ module hp12597a #(
         //--------------------------------------------------------------------
         // flag buffer flip/flop
         if (do_clf |  (iak & irq_ff)) flag_buffer_ff <= 1'b0;
-        else if (popio | do_stf | (feedhole & ~flag_ff)) flag_buffer_ff <= 1'b1;
+        else if (do_stf | (feedhole & ~flag_ff)) flag_buffer_ff <= 1'b1;
 
         // flag flip/flop
         if (flag_buffer_ff & enf) flag_ff <= 1'b1;

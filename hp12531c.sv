@@ -167,7 +167,7 @@ module hp12531c #(
   //--------------------------------------------------------------------------
   // Main sequential logic
   //--------------------------------------------------------------------------
-  always_ff @(posedge clk or posedge crs) begin
+  always_ff @(posedge clk or popio) begin
     if (crs) begin
       flag_ff       <= 1'b0;
       flag_buffer_ff <= 1'b1;
@@ -189,7 +189,7 @@ module hp12531c #(
         //--------------------------------------------------------------------
         // flag buffer flip/flop
         if (do_clf |  (iak & irq_ff)) flag_buffer_ff <= 1'b0;
-        else if (popio | do_stf | (~counter_reset_ff & sir)) flag_buffer_ff <= 1'b1;
+        else if (do_stf | (~counter_reset_ff & sir)) flag_buffer_ff <= 1'b1;
 
         // flag flip/flop
         if (flag_buffer_ff & enf) flag_ff <= 1'b1;
@@ -199,7 +199,7 @@ module hp12531c #(
         if (sir & prh & flag_ff & ien & control_ff & flag_buffer_ff) irq_ff <= 1'b1;
         if (enf) irq_ff <= 1'b0;
         // control flip/flip
-        if (do_clc) control_ff <= 1'b0;
+        if (do_clc | crs) control_ff <= 1'b0;
         if (do_stc) control_ff <= 1'b1;
 
         if (do_ioo & iob_out[15]) inout_ff <= iob_out[14];

@@ -79,7 +79,7 @@ module tb_hp2116;
   hp2116_cpu #(
   ) cpu (
     .clk(clk),
-    .rst_n(rst_n),
+    .popio(~rst_n),
 
     .sw(sw),
 
@@ -1191,7 +1191,7 @@ end
     sw = 16'o00010;
     if (loadfile =="diagnostics/24185-60001_Rev-A.abin") begin
       loader_protected_switch = 1'b1;
-      sw = 16'o000012;
+      sw = 16'o000112;
     end
     // Enable single-cycle mode and do two phase-steps
     //pulse_btn(single_cycle_btn); // enter single mode + arm one phase
@@ -1319,7 +1319,7 @@ end
         $display("TIME %0t: Set reader OFF", $time);
       end else if ((cpu.TR == 16'o107076) && (loadfile =="diagnostics/24185-60001_Rev-A.abin")) begin
         #1;
-        sw <= 16'b0000111000000000;
+        sw <= 16'b0000111001000000;
         #1;
         pulse_btn(run_btn);
         #1;        
@@ -1329,9 +1329,25 @@ end
         #1;
         pulse_btn(load_addr_btn);
         #1;
-        sw <= 16'o000000;
+        sw <= 16'o005101;
         #1
         pulse_btn(preset_btn);
+        #1;
+        pulse_btn(run_btn);
+        #1;        
+      end else if ((cpu.TR == 16'o103013) && (loadfile =="diagnostics/24185-60001_Rev-A.abin")) begin
+        #1;
+        sw <= 16'o000012;
+        #1
+        //pulse_btn(preset_btn);
+        #1;
+        pulse_btn(run_btn);
+        #1;        
+      end else if ((cpu.TR == 16'o103014) && (loadfile =="diagnostics/24185-60001_Rev-A.abin")) begin
+        #1;
+        sw <= 16'b0000111000000000;
+        #1
+        //pulse_btn(preset_btn);
         #1;
         pulse_btn(run_btn);
         #1;        

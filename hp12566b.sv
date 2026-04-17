@@ -172,8 +172,8 @@ module hp12566b #(
   //--------------------------------------------------------------------------
   // Main sequential logic
   //--------------------------------------------------------------------------
-  always_ff @(posedge clk or posedge crs) begin
-    if (crs) begin
+  always_ff @(posedge clk or popio) begin
+    if (popio) begin
       flag_ff       <= 1'b0;
       flag_buffer_ff <= 1'b1;
       irq_ff        <= 1'b0;
@@ -187,7 +187,7 @@ module hp12566b #(
         //--------------------------------------------------------------------
         // flag buffer flip/flop
         if (do_clf |  (iak & irq_ff)) flag_buffer_ff <= 1'b0;
-        else if (popio | do_stf | ((((jumper_w3 == "A") && flag) || ((jumper_w3 == "B") && ~flag)) & ~flag_ff)) flag_buffer_ff <= 1'b1;
+        else if (do_stf | ((((jumper_w3 == "A") && flag) || ((jumper_w3 == "B") && ~flag)) & ~flag_ff)) flag_buffer_ff <= 1'b1;
 
         // flag flip/flop
         if (flag_buffer_ff & enf) flag_ff <= 1'b1;
@@ -200,7 +200,7 @@ module hp12566b #(
         if (do_clc | crs) control_ff <= 1'b0;
         else if (do_stc) control_ff <= 1'b1;
         // command flip/flop
-        if ((do_clc & (jumper_w9 =="A")) | flag_conditioned ) command_ff <= 1'b0;
+        if (((do_clc | crs) & (jumper_w9 =="A")) | ((jumper_w9 =="B") & crs) | flag_conditioned ) command_ff <= 1'b0;
         else if (do_stc) command_ff <= 1'b1;
 
         // data flip/flop
