@@ -450,8 +450,8 @@ They might differ??
     clear_interrupt_system_enable = clear_flag & msc0 & lsc0;
     iak = (tstate == T0) & (phase == PH_FETCH) & Interrupt_Control;
     is_jmp = (op4 == 4'o5);
-    ioo = state34 & (((TR[8:6] == 3'o6) && normal_instruction_execution) | dma_ioo);
-    ioi = state45 & ((((TR[8:6] == 3'o5) | (TR[8:6] == 3'o4)) && normal_instruction_execution) | dma_ioi);
+    ioo = state34 & (((TR[8:6] == 3'o6) && is_io_instr) | dma_ioo);
+    ioi = state45 & ((((TR[8:6] == 3'o5) | (TR[8:6] == 3'o4)) && is_io_instr) | dma_ioi);
     iob_out = ioo ? (IR[1] ? B : A) : 16'h0000;
     sfs = is_io_instr & (TR[8:6] == 3'o3);
     sfc = is_io_instr & (TR[8:6] == 3'o2);
@@ -483,11 +483,11 @@ always @* begin
     iob_in_internal = 16'h0000;
 
     // Special case: internal select codes 00-07 (and any reserved values)
-    if (TR[5:0] < 6'o10) begin
-        case (TR[5:0])
+    if (sc_mux < 6'o10) begin
+        case (sc_mux)
             6'o01: iob_in_internal = sw;
-            6'o02: iob_in_internal = dma_1_control_ff?dma_1_address_word:dma_1_block_length;
-            6'o03: iob_in_internal = dma_2_control_ff?dma_2_address_word:dma_2_block_length;
+            6'o02: iob_in_internal = dma_1_reg_selector?{ 2'b00, dma_1_block_length[13:0]}:{16'o000000};
+            6'o03: iob_in_internal = dma_1_reg_selector?{ 2'b00, dma_2_block_length[13:0]}:{16'o000000};
             6'o06: iob_in_internal = dma_1_program_control_word;
             6'o07: iob_in_internal = dma_2_program_control_word;
             default: iob_in_internal = 16'h0000;
@@ -671,40 +671,40 @@ end
       dma_1_flagbuffer_ff <= 1'b0;
       dma_2_flagbuffer_ff <= 1'b0;
     end else begin
-      if (clc & (sc == 6'o2)) dma_1_reg_selector <= 1'b0;
-      else if (stc & (sc == 6'o2)) dma_1_reg_selector <= 1'b1;
-      if (ioo & ~dma_1_reg_selector & (sc == 6'o2)) dma_1_address_word <= iob_out;
-      if (ioo & dma_1_reg_selector & (sc == 6'o2)) dma_1_block_length <= iob_out;
-      if (clc & (sc == 6'o3)) dma_2_reg_selector <= 1'b0;
-      else if (stc & (sc == 6'o3)) dma_2_reg_selector <= 1'b1;
-      if (ioo & ~dma_2_reg_selector & (sc == 6'o3)) dma_2_address_word <= iob_out;
-      if (ioo & dma_2_reg_selector & (sc == 6'o3)) dma_2_block_length <= iob_out;
-      if (ioo & (sc == 6'o6)) dma_1_program_control_word <= iob_out;
-      if (ioo & (sc == 6'o7)) dma_1_program_control_word <= iob_out;
-      if (crs | (clc & (sc == 6'o6))) dma_1_control_ff <= 1'b0;
-      if (crs | (clc & (sc == 6'o7))) dma_2_control_ff <= 1'b0;
-      if (stc & (sc == 6'o6)) dma_1_control_ff <= 1'b1;
-      if (stc & (sc == 6'o7)) dma_2_control_ff <= 1'b1;  
+      if (crs | (clc & (sc_mux == 6'o2))) dma_1_reg_selector <= 1'b0;
+      else if (stc & (sc_mux == 6'o2)) dma_1_reg_selector <= 1'b1;
+      if (ioo & ~dma_1_reg_selector & (sc_mux == 6'o2)) dma_1_address_word[14:0] <= iob_out[14:0];
+      if (ioo & dma_1_reg_selector & (sc_mux == 6'o2)) dma_1_block_length[13:0] <= iob_out[13:0];
+      if (crs | (clc & (sc_mux == 6'o3))) dma_2_reg_selector <= 1'b0;
+      else if (stc & (sc_mux == 6'o3)) dma_2_reg_selector <= 1'b1;
+      if (ioo & ~dma_2_reg_selector & (sc_mux == 6'o3)) dma_2_address_word <= iob_out;
+      if (ioo & dma_2_reg_selector & (sc_mux== 6'o3)) dma_2_block_length <= iob_out;
+      if (ioo & (sc_mux == 6'o6)) dma_1_program_control_word <= iob_out;
+      if (ioo & (sc_mux == 6'o7)) dma_2_program_control_word <= iob_out;
+      if (crs | (clc & (sc_mux == 6'o6))) dma_1_control_ff <= 1'b0;
+      if (crs | (clc & (sc_mux == 6'o7))) dma_2_control_ff <= 1'b0;
+      if (stc & (sc_mux == 6'o6)) dma_1_control_ff <= 1'b1;
+      if (stc & (sc_mux == 6'o7)) dma_2_control_ff <= 1'b1;  
 
       // DMA 1 flag_buffer, flag and irq
-      if ((clf & (sc == 6'o6)) |  (iak & dma_1_irq_ff)) dma_1_flagbuffer_ff <= 1'b0;
-      else if (popio | (stf & (sc == 6'o6)) | dma_1_end_of_transfer) dma_1_flagbuffer_ff <= 1'b1;
+      if ((clf & (sc_mux == 6'o6)) |  (iak & dma_1_irq_ff)) dma_1_flagbuffer_ff <= 1'b0;
+      else if (popio | (stf & (sc_mux == 6'o6)) | dma_1_end_of_transfer) dma_1_flagbuffer_ff <= 1'b1;
 
       // flag flip/flop
       if (dma_1_flagbuffer_ff & enf) dma_1_flag_ff <= 1'b1;
-      else if (clf & (sc == 6'o6)) dma_1_flag_ff <= 1'b0;
+      else if (clf & (sc_mux == 6'o6)) dma_1_flag_ff <= 1'b0;
 
       // irq flip/flop
       if (sir & prh_in_to_dma_1 & dma_1_flagbuffer_ff & Interrupt_System_Enable & dma_1_flag_ff & dma_1_control_ff) dma_1_irq_ff <= 1'b1;
       else if (enf) dma_1_irq_ff <= 1'b0;
 
       // DMA 2 flag_buffer, flag and irq
-      if ((clf & (sc == 6'o7)) |  (iak & dma_2_irq_ff)) dma_2_flagbuffer_ff <= 1'b0;
-      else if (popio | (stf & (sc == 6'o7)) | dma_2_end_of_transfer) dma_2_flagbuffer_ff <= 1'b1;
+      if ((clf & (sc_mux == 6'o7)) |  (iak & dma_2_irq_ff)) dma_2_flagbuffer_ff <= 1'b0;
+      else if (popio | (stf & (sc_mux == 6'o7)) | dma_2_end_of_transfer) dma_2_flagbuffer_ff <= 1'b1;
 
       // flag flip/flop
       if (dma_2_flagbuffer_ff & enf) dma_2_flag_ff <= 1'b1;
-      else if ((clf & (sc == 6'o7))) dma_2_flag_ff <= 1'b0;
+      else if ((clf & (sc_mux == 6'o7))) dma_2_flag_ff <= 1'b0;
 
       // irq flip/flop
       if (sir & prh_in_to_dma_2 & dma_2_flagbuffer_ff & Interrupt_System_Enable & dma_2_flag_ff & dma_2_control_ff) dma_2_irq_ff <= 1'b1;
@@ -1290,11 +1290,11 @@ end
             // ---------------------------------------------------------------
             PH_DMA: begin
               if (tstate == T1) begin
-                if (dma_1_active & ~dma_1_program_control_word[15]) begin 
+                if (dma_1_active) begin 
                   if (dma_1_program_control_word[15] == 1'b0)
                     dma_1_storage_register <= mem_rdata;
                 end else begin
-                  if (dma_1_program_control_word[15] == 1'b0)
+                  if (dma_2_program_control_word[15] == 1'b0)
                     dma_2_storage_register <= mem_rdata;
                 end
               end
@@ -1305,8 +1305,27 @@ end
                   dma_2_block_length[13:0] <=  dma_2_block_length[13:0] + 14'o00001;
                 end
               end
+              if (tstate == T4) begin
+                if (dma_1_active) begin 
+                  if (dma_1_program_control_word[15] == 1'b1)
+                    dma_1_storage_register <= iob_in_internal;
+                end else begin
+                  if (dma_2_program_control_word[15] == 1'b1)
+                    dma_2_storage_register <= iob_in_internal;
+                end
+              end
+              if (tstate == T5) begin
+                mem_we <= 1'b1;
+              end  
+              if (tstate == T6) begin
+                mem_we <= 1'b0;
+              end               
               if (tstate == T7) begin
-                //phase <= PH_FETCH;
+                if (dma_1_active) begin
+                  dma_1_address_word[14:0] <=  dma_1_address_word[14:0] + 15'o00001;  
+                end else begin
+                  dma_2_address_word[14:0] <=  dma_2_address_word[14:0] + 15'o00001;
+                end
               end
             end
 
