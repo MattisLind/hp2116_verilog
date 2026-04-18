@@ -99,7 +99,7 @@ module hp2116_cpu #(
   logic irqh_dummy1;
   logic irqh_dummy2;
   logic irqh_dummy3;
-  logic srq10, srq11, srq12, srq;
+  logic srq10, srq11, srq12, srq13, srq14, srq15, srq16, srq17, srq20, srq21, srq22, srq23, srq24, srq25, srq26, srq27;
   logic [15:0] iob_out;
   logic [15:0] iob_in10, iob_in11, iob_in12, iob_in_internal, dummy;
 
@@ -393,7 +393,6 @@ They might differ??
     op4 = IR[4:1];
     cz  = IR[0];
     ind = TR[15];
-    edt = 1'b0;
     // The low address bits come from the T register.
     off10 = TR[9:0];
     normal_instruction_execution = ~((phase == PH_DMA) || (phase == PH_INTERRUPT));
@@ -411,11 +410,15 @@ They might differ??
     is_halt_instr = is_io_instr & (TR[8:6] == 3'o0);
     sc = TR[5:0];
     if (phase == PH_DMA) begin
-      if (dma_1_active) begin
+      if (dma_1_cycle_request_ff) begin
         sc_mux = dma_1_program_control_word[5:0];
-      end else begin
+      end 
+      else if (dma_2_cycle_request_ff) begin
         sc_mux = dma_2_program_control_word[5:0];
-      end
+      end 
+      else begin
+        sc_mux = 6'o00;
+      end 
     end else begin
        sc_mux = TR[5:0];
     end
@@ -475,7 +478,19 @@ They might differ??
     end else begin
       unprotected = 1'b1;
     end
-    srq = srq10 | srq11 | srq12;
+    srq13 = 1'b0;
+    srq14 = 1'b0;
+    srq15 = 1'b0;
+    srq16 = 1'b0;
+    srq17 = 1'b0;
+    srq20 = 1'b0;
+    srq21 = 1'b0;
+    srq22 = 1'b0;
+    srq23 = 1'b0;
+    srq24 = 1'b0; 
+    srq25 = 1'b0;
+    srq26 = 1'b0;
+    srq27 = 1'b0;       
   end
 
 always @* begin
@@ -487,7 +502,7 @@ always @* begin
         case (sc_mux)
             6'o01: iob_in_internal = sw;
             6'o02: iob_in_internal = dma_1_reg_selector?{ 2'b00, dma_1_block_length[13:0]}:{16'o000000};
-            6'o03: iob_in_internal = dma_1_reg_selector?{ 2'b00, dma_2_block_length[13:0]}:{16'o000000};
+            6'o03: iob_in_internal = dma_2_reg_selector?{ 2'b00, dma_2_block_length[13:0]}:{16'o000000};
             default: iob_in_internal = 16'o000000;
 
         endcase
@@ -565,26 +580,56 @@ end
   //--------------------------------------------------------------------------
   always_comb begin
     // Address is driven from M and write data from T.
+
     if (phase == PH_DMA) begin
-      if (dma_1_active) begin
+      if (dma_1_cycle_request_ff) begin
         mem_addr = dma_1_address_word[14:0]; 
         mem_wdata = dma_1_storage_register; 
-      end else begin
+      end 
+      else if (dma_2_cycle_request_ff) begin
         mem_addr = dma_2_address_word[14:0]; 
         mem_wdata = dma_2_storage_register;
-      end
-    end
-    else begin 
+      end 
+      else begin
+        mem_addr = 15'o000000; 
+        mem_wdata = 16'o000000;
+      end 
+    end else begin
       mem_addr  = M ;
       mem_wdata = TR;
-    end
+    end    
   end
 
+
+
+function automatic logic srq_for_sc(input logic [5:0] selectcode);
+  begin
+    unique case (selectcode)
+      6'o10: srq_for_sc = srq10;
+      6'o11: srq_for_sc = srq11;
+      6'o12: srq_for_sc = srq12;
+      6'o13: srq_for_sc = srq13;
+      6'o14: srq_for_sc = srq14;
+      6'o15: srq_for_sc = srq15;
+      6'o16: srq_for_sc = srq16;
+      6'o17: srq_for_sc = srq17;
+      6'o20: srq_for_sc = srq20;
+      6'o21: srq_for_sc = srq21;
+      6'o22: srq_for_sc = srq22;
+      6'o23: srq_for_sc = srq23;
+      6'o24: srq_for_sc = srq24;
+      6'o25: srq_for_sc = srq25;
+      6'o26: srq_for_sc = srq26;
+      6'o27: srq_for_sc = srq27;
+      default: srq_for_sc = 1'b0;
+    endcase
+  end
+endfunction
 
 /*
   Signal DIN1 and DIN2 in the schematic are the dma_1_direction_ff and dma_2_direction_ff.
   Signal WCR1 and WCR2 is the dma_1_overflow_ff and dma_2_overflow_ff.
-  Signal 
+  Signal CR1 and CR2 is coming from the Cycle Request Flip Flops, dma_1_cycle_request_ff, dma_2_cycle_request_ff
 
 
 */
@@ -603,11 +648,13 @@ end
   logic dma_1_flag_ff, dma_2_flag_ff, dma_1_flagbuffer_ff, dma_2_flagbuffer_ff, dma_1_irq_ff, dma_2_irq_ff;
   logic dma_1_transfer_enable_ff, dma_2_transfer_enable_ff;
   logic prh_in_to_dma_1, prl_out_from_dma_1, prh_in_to_dma_2, prl_out_from_dma_2;
-  logic dma_1_active;
-  logic dma_1_end_of_transfer, dma_2_end_of_transfer;
+  //logic dma_1_active;
+
   logic dma_ioi, dma_ioo, dma_stc, dma_clc, dma_clf;
   logic dma_1_char_mode_ff, dma_2_char_mode_ff;
   logic dma_1_cycle_div_ff,dma_2_cycle_div_ff;
+  logic dma_1_cycle_request_ff, dma_2_cycle_request_ff;
+  logic dma_1_request, dma_2_request;
   always_comb begin
     // DMA combinatorial logic
     prh_in_to_dma_1 = 1'b1;
@@ -615,54 +662,69 @@ end
     prh_in_to_dma_2 =prl_out_from_dma_1;
     prl_out_from_dma_2 = prh_in_to_dma_2 & ~(Interrupt_System_Enable & dma_2_flag_ff & dma_2_control_ff);
 
-    if (dma_1_block_length[13:0]==14'o00000) dma_1_end_of_transfer = 1'b1;
-    else dma_1_end_of_transfer = 1'b0;
-    
-    if (dma_2_block_length[13:0]==14'o00000) dma_2_end_of_transfer = 1'b1;
-    else dma_2_end_of_transfer = 1'b0;
+    dma_ioi = 1'b0;
+    dma_ioo = 1'b0;
+    dma_stc = 1'b0;
+    dma_clc = 1'b0;
+    dma_clf = 1'b0;
+    edt     = 1'b0;
 
     if (phase == PH_DMA) begin
-      if (dma_1_active & dma_1_stc_on_every_transfer) begin
-        dma_stc = 1'b1;
-      end
-      else if (~dma_1_active & dma_2_stc_on_every_transfer) begin
-        dma_stc = 1'b1;
-      end
-      else dma_stc = 1'b0;
-      if (dma_1_active & dma_1_clc_on_last_transfer & dma_1_transfer_enable_ff) begin
-        dma_clc = 1'b1;
-      end
-      else if (~dma_1_active & dma_2_clc_on_last_transfer & dma_2_transfer_enable_ff) begin
-        dma_clc = 1'b1;
-      end
-      else dma_clc = 1'b0; 
-      if (dma_1_active) begin
-        if (dma_1_direction_ff) begin 
-          dma_ioi = 1'b1;
-          dma_ioo = 1'b0;
-        end 
-        else begin
-          dma_ioi = 1'b0;
-          dma_ioo = 1'b1;
+        // Kodkommentar: STC vid varje transfer om villkoren är uppfyllda.
+        if (dma_1_stc_on_every_transfer && dma_1_cycle_request_ff &&
+            ~(dma_1_overflow_ff && dma_1_direction_ff)) begin
+            dma_stc = 1'b1;
         end
-      end else begin
-        if (dma_2_direction_ff) begin 
-          dma_ioi = 1'b1;
-          dma_ioo = 1'b0;
+        else if (dma_2_stc_on_every_transfer && dma_2_cycle_request_ff &&
+                 ~(dma_2_overflow_ff && dma_2_direction_ff)) begin
+            dma_stc = 1'b1;
         end
-        else begin 
-          dma_ioi = 1'b0;
-          dma_ioo = 1'b1;
-        end        
-      end 
-      dma_clf = 1'b1;
-    end else begin
-      dma_ioi = 1'b0;
-      dma_ioo = 1'b0;
-      dma_stc = 1'b0;
-      dma_clc = 1'b0;
-      dma_clf = 1'b0;
-    end    
+
+        // Kodkommentar: CLC på sista transfer.
+        if (dma_1_clc_on_last_transfer && dma_1_cycle_request_ff && dma_1_overflow_ff) begin
+            dma_clc = 1'b1;
+        end
+        else if (dma_2_clc_on_last_transfer && dma_2_cycle_request_ff && dma_2_overflow_ff) begin
+            dma_clc = 1'b1;
+        end
+
+        // Kodkommentar: DMA output cycle.
+        if (dma_1_cycle_request_ff && ~dma_1_direction_ff) begin
+            dma_ioo = 1'b1;
+        end
+        else if (dma_2_cycle_request_ff && ~dma_2_direction_ff) begin
+            dma_ioo = 1'b1;
+        end
+
+        // Kodkommentar: DMA input cycle.
+        if (dma_1_cycle_request_ff && dma_1_direction_ff) begin
+            dma_ioi = 1'b1;
+        end
+        else if (dma_2_cycle_request_ff && dma_2_direction_ff) begin
+            dma_ioi = 1'b1;
+        end
+
+        // Kodkommentar: CLF under transfer så länge overflow-villkoret inte blockerar.
+        if (dma_1_cycle_request_ff && ~(dma_1_overflow_ff && dma_1_direction_ff)) begin
+            dma_clf = 1'b1;
+        end
+        else if (dma_2_cycle_request_ff && ~(dma_2_overflow_ff && dma_2_direction_ff)) begin
+            dma_clf = 1'b1;
+        end
+
+        // Kodkommentar: EDT i state45 om någon DMA-kanal har overflow under aktiv cykel.
+        if (state45) begin
+            if (dma_1_overflow_ff && dma_1_cycle_request_ff) begin
+                edt = 1'b1;
+            end
+            else if (dma_2_overflow_ff && dma_2_cycle_request_ff) begin
+                edt = 1'b1;
+            end
+        end
+    end 
+    dma_1_request = dma_1_transfer_enable_ff && srq_for_sc(dma_1_program_control_word);
+
+    dma_2_request = !dma_1_request && dma_2_transfer_enable_ff && srq_for_sc(dma_2_program_control_word);
 
   end
 
@@ -734,7 +796,7 @@ end
 
       // DMA 1 flag_buffer, flag and irq
       if ((clf & (sc_mux == 6'o6)) |  (iak & dma_1_irq_ff)) dma_1_flagbuffer_ff <= 1'b0;
-      else if (popio | (stf & (sc_mux == 6'o6)) | (dma_1_end_of_transfer & dma_1_transfer_enable_ff)) dma_1_flagbuffer_ff <= 1'b1;
+      else if (popio | (stf & (sc_mux == 6'o6)) | (dma_1_overflow_ff & dma_1_transfer_enable_ff)) dma_1_flagbuffer_ff <= 1'b1;
 
       // flag flip/flop
       if (dma_1_flagbuffer_ff & enf) dma_1_flag_ff <= 1'b1;
@@ -746,7 +808,7 @@ end
 
       // DMA 2 flag_buffer, flag and irq
       if ((clf & (sc_mux == 6'o7)) |  (iak & dma_2_irq_ff)) dma_2_flagbuffer_ff <= 1'b0;
-      else if (popio | (stf & (sc_mux == 6'o7)) | (dma_2_end_of_transfer& dma_2_transfer_enable_ff)) dma_2_flagbuffer_ff <= 1'b1;
+      else if (popio | (stf & (sc_mux == 6'o7)) | (dma_2_overflow_ff & dma_2_transfer_enable_ff)) dma_2_flagbuffer_ff <= 1'b1;
 
       // flag flip/flop
       if (dma_2_flagbuffer_ff & enf) dma_2_flag_ff <= 1'b1;
@@ -755,7 +817,14 @@ end
       // irq flip/flop
       if (sir & prh_in_to_dma_2 & dma_2_flagbuffer_ff & Interrupt_System_Enable & dma_2_flag_ff & dma_2_control_ff) dma_2_irq_ff <= 1'b1;
       else if (enf) dma_2_irq_ff <= 1'b0;
-      
+      if (tstate == T6) begin
+        dma_1_cycle_request_ff <= dma_1_request;
+        dma_2_cycle_request_ff <= dma_2_request;       
+      end 
+      else if (crs) begin
+        dma_1_cycle_request_ff <= 1'b0;
+        dma_2_cycle_request_ff <= 1'b0;        
+      end    
     end
   end
 
@@ -1342,29 +1411,30 @@ end
             // ---------------------------------------------------------------
             PH_DMA: begin
               if (tstate == T1) begin
-                if (dma_1_active) begin 
-                  if (dma_1_stc_on_every_transfer == 1'b0)
+
+                if (dma_1_cycle_request_ff & dma_1_direction_ff) begin
                     dma_1_storage_register <= mem_rdata;
-                end else begin
-                  if (dma_2_stc_on_every_transfer == 1'b0)
+                end 
+                else if (dma_2_cycle_request_ff & dma_2_direction_ff ) begin
                     dma_2_storage_register <= mem_rdata;
-                end
+                end 
+
               end
               if (tstate == T2) begin
-                if (dma_1_active) begin
-                  { dma_1_overflow_ff, dma_1_block_length[13:0] } <=  { 1'b0, dma_1_block_length[13:0] } + 14'o00001;  
-                end else begin
-                  { dma_2_overflow_ff, dma_2_block_length[13:0] } <=  { 1'b0, dma_2_block_length[13:0]} + 14'o00001;
-                end
+                if (dma_1_cycle_request_ff) begin
+                    { dma_1_overflow_ff, dma_1_block_length[13:0] } <=  { 1'b0, dma_1_block_length[13:0] } + 14'o00001;
+                end 
+                else if (dma_2_cycle_request_ff) begin
+                    { dma_2_overflow_ff, dma_2_block_length[13:0] } <=  { 1'b0, dma_2_block_length[13:0]} + 14'o00001;
+                end                 
               end
               if (tstate == T4) begin
-                if (dma_1_active) begin 
-                  if (dma_1_stc_on_every_transfer == 1'b1)
+                if (dma_1_cycle_request_ff) begin
                     dma_1_storage_register <= iob_in_internal;
-                end else begin
-                  if (dma_2_stc_on_every_transfer == 1'b1)
+                end 
+                else if (dma_2_cycle_request_ff) begin
                     dma_2_storage_register <= iob_in_internal;
-                end
+                end                  
               end
               if (tstate == T5) begin
                 mem_we <= 1'b1;
@@ -1373,11 +1443,12 @@ end
                 mem_we <= 1'b0;
               end               
               if (tstate == T7) begin
-                if (dma_1_active) begin
-                  dma_1_address_word[14:0] <=  dma_1_address_word[14:0] + 15'o00001;  
-                end else begin
+                if (dma_1_cycle_request_ff) begin
+                  dma_1_address_word[14:0] <=  dma_1_address_word[14:0] + 15'o00001; 
+                end 
+                else if (dma_2_cycle_request_ff) begin
                   dma_2_address_word[14:0] <=  dma_2_address_word[14:0] + 15'o00001;
-                end
+                end                   
               end
             end
 
@@ -1388,24 +1459,10 @@ end
             end
           endcase
           if (tstate == T7) begin
-            if (srq10 & dma_1_control_ff & dma_1_program_control_word[5:0] == 6'o10) begin
-              phase <= PH_DMA;  
-              dma_1_active <= 1'b1;  
-            end else if (srq10 & dma_2_control_ff &dma_2_program_control_word[5:0] == 6'o10) begin
+            if (dma_1_cycle_request_ff) begin
+              phase <= PH_DMA;   
+            end else if (dma_2_cycle_request_ff) begin
               phase <= PH_DMA; 
-              dma_1_active <= 1'b0;
-            end else if (srq11 & dma_1_control_ff & dma_1_program_control_word[5:0] == 6'o11) begin
-              phase <= PH_DMA; 
-              dma_1_active <= 1'b1;
-            end else if (srq11 & dma_2_control_ff & dma_2_program_control_word[5:0] == 6'o11) begin
-              phase <= PH_DMA; 
-              dma_1_active <= 1'b0;
-            end else if (srq12 & dma_1_control_ff & dma_1_program_control_word[5:0] == 6'o12) begin
-              phase <= PH_DMA; 
-              dma_1_active <= 1'b1;
-            end else if (srq12 & dma_2_control_ff & dma_2_program_control_word[5:0] == 6'o12) begin
-              phase <= PH_DMA; 
-              dma_1_active <= 1'b0;
             end 
             else if (interrupt & phase != PH_INTERRUPT) begin
               phase <= PH_INTERRUPT;
