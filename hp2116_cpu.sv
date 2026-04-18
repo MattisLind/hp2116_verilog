@@ -488,9 +488,7 @@ always @* begin
             6'o01: iob_in_internal = sw;
             6'o02: iob_in_internal = dma_1_reg_selector?{ 2'b00, dma_1_block_length[13:0]}:{16'o000000};
             6'o03: iob_in_internal = dma_1_reg_selector?{ 2'b00, dma_2_block_length[13:0]}:{16'o000000};
-            6'o06: iob_in_internal = dma_1_program_control_word;
-            6'o07: iob_in_internal = dma_2_program_control_word;
-            default: iob_in_internal = 16'h0000;
+            default: iob_in_internal = 16'o000000;
 
         endcase
     end
@@ -583,20 +581,33 @@ end
   end
 
 
+/*
+  Signal DIN1 and DIN2 in the schematic are the dma_1_direction_ff and dma_2_direction_ff.
+  Signal WCR1 and WCR2 is the dma_1_overflow_ff and dma_2_overflow_ff.
+  Signal 
 
 
-  logic [15:0] dma_1_program_control_word, dma_2_program_control_word;
-  logic [15:0] dma_1_address_word, dma_2_address_word;
-  logic [15:0] dma_1_block_length, dma_2_block_length;
+*/
+
+
+
+  logic [5:0] dma_1_program_control_word, dma_2_program_control_word;
+  logic dma_1_stc_on_every_transfer, dma_2_stc_on_every_transfer;
+  logic dma_1_clc_on_last_transfer, dma_2_clc_on_last_transfer;
+  logic [14:0] dma_1_address_word, dma_2_address_word;
+  logic [13:0] dma_1_block_length, dma_2_block_length;
   logic [15:0] dma_1_storage_register, dma_2_storage_register;
+  logic dma_1_direction_ff, dma_2_direction_ff;
+  logic dma_1_overflow_ff, dma_2_overflow_ff;
   logic dma_1_control_ff, dma_2_control_ff, dma_1_reg_selector, dma_2_reg_selector;
   logic dma_1_flag_ff, dma_2_flag_ff, dma_1_flagbuffer_ff, dma_2_flagbuffer_ff, dma_1_irq_ff, dma_2_irq_ff;
+  logic dma_1_transfer_enable_ff, dma_2_transfer_enable_ff;
   logic prh_in_to_dma_1, prl_out_from_dma_1, prh_in_to_dma_2, prl_out_from_dma_2;
   logic dma_1_active;
   logic dma_1_end_of_transfer, dma_2_end_of_transfer;
   logic dma_ioi, dma_ioo, dma_stc, dma_clc, dma_clf;
-
-
+  logic dma_1_char_mode_ff, dma_2_char_mode_ff;
+  logic dma_1_cycle_div_ff,dma_2_cycle_div_ff;
   always_comb begin
     // DMA combinatorial logic
     prh_in_to_dma_1 = 1'b1;
@@ -611,22 +622,22 @@ end
     else dma_2_end_of_transfer = 1'b0;
 
     if (phase == PH_DMA) begin
-      if (dma_1_active & dma_1_program_control_word[15]) begin
+      if (dma_1_active & dma_1_stc_on_every_transfer) begin
         dma_stc = 1'b1;
       end
-      else if (~dma_1_active & dma_2_program_control_word[15]) begin
+      else if (~dma_1_active & dma_2_stc_on_every_transfer) begin
         dma_stc = 1'b1;
       end
       else dma_stc = 1'b0;
-      if (dma_1_active & dma_1_program_control_word[13] & dma_1_end_of_transfer) begin
+      if (dma_1_active & dma_1_clc_on_last_transfer & dma_1_transfer_enable_ff) begin
         dma_clc = 1'b1;
       end
-      else if (~dma_1_active & dma_2_program_control_word[13] & dma_2_end_of_transfer) begin
+      else if (~dma_1_active & dma_2_clc_on_last_transfer & dma_2_transfer_enable_ff) begin
         dma_clc = 1'b1;
       end
       else dma_clc = 1'b0; 
       if (dma_1_active) begin
-        if (dma_1_address_word[15]) begin 
+        if (dma_1_direction_ff) begin 
           dma_ioi = 1'b1;
           dma_ioo = 1'b0;
         end 
@@ -635,7 +646,7 @@ end
           dma_ioo = 1'b1;
         end
       end else begin
-        if (dma_2_address_word[15]) begin 
+        if (dma_2_direction_ff) begin 
           dma_ioi = 1'b1;
           dma_ioo = 1'b0;
         end
@@ -658,37 +669,72 @@ end
   // DMA process
   always_ff @(posedge clk or popio) begin
     if (popio) begin
-      dma_1_program_control_word <= 16'o000000; 
-      dma_2_program_control_word <= 16'o000000;
-      dma_1_address_word <= 16'o000000;
-      dma_2_address_word <= 16'o000000;
-      dma_1_block_length <= 16'o000000;
-      dma_2_block_length <= 16'o000000;
+      dma_1_program_control_word <= 6'o00; 
+      dma_2_program_control_word <= 6'o00;
+      dma_1_address_word <= 15'o000000;
+      dma_2_address_word <= 15'o000000;
+      dma_1_block_length <= 14'o000000;
+      dma_2_block_length <= 14'o000000;
       dma_1_control_ff <= 1'b0;
       dma_2_control_ff <= 1'b0;
       dma_1_reg_selector <= 1'b0;
       dma_2_reg_selector <= 1'b0;
       dma_1_flagbuffer_ff <= 1'b0;
       dma_2_flagbuffer_ff <= 1'b0;
+      dma_1_transfer_enable_ff <= 1'b0;
+      dma_2_transfer_enable_ff <= 1'b0;
+      dma_1_stc_on_every_transfer <= 1'b0;
+      dma_2_stc_on_every_transfer <= 1'b0;
+      dma_1_clc_on_last_transfer <= 1'b0;
+      dma_2_clc_on_last_transfer <= 1'b0;
+      dma_1_char_mode_ff <= 1'b0;
+      dma_2_char_mode_ff <= 1'b0;
+      dma_1_cycle_div_ff <= 1'b0;
+      dma_2_cycle_div_ff <=1'b0;
+      dma_1_direction_ff <= 1'b0;
+      dma_2_direction_ff <= 1'b0;
+      dma_1_overflow_ff <= 1'b0;
+      dma_2_overflow_ff <= 1'b0;
     end else begin
       if (crs | (clc & (sc_mux == 6'o2))) dma_1_reg_selector <= 1'b0;
       else if (stc & (sc_mux == 6'o2)) dma_1_reg_selector <= 1'b1;
-      if (ioo & ~dma_1_reg_selector & (sc_mux == 6'o2)) dma_1_address_word[14:0] <= iob_out[14:0];
-      if (ioo & dma_1_reg_selector & (sc_mux == 6'o2)) dma_1_block_length[13:0] <= iob_out[13:0];
+
+      if (ioo & ~dma_1_reg_selector & (sc_mux == 6'o2)) dma_1_address_word <= iob_out[14:0];
+      if (ioo & ~dma_1_reg_selector & (sc_mux == 6'o2)) dma_1_direction_ff <= iob_out[15];
+      if (ioo & dma_1_reg_selector & (sc_mux == 6'o2)) dma_1_block_length <= iob_out[13:0];
+      if (ioo & dma_1_reg_selector & (sc_mux == 6'o2)) dma_1_overflow_ff <= 1'b0;
       if (crs | (clc & (sc_mux == 6'o3))) dma_2_reg_selector <= 1'b0;
       else if (stc & (sc_mux == 6'o3)) dma_2_reg_selector <= 1'b1;
-      if (ioo & ~dma_2_reg_selector & (sc_mux == 6'o3)) dma_2_address_word <= iob_out;
-      if (ioo & dma_2_reg_selector & (sc_mux== 6'o3)) dma_2_block_length <= iob_out;
-      if (ioo & (sc_mux == 6'o6)) dma_1_program_control_word <= iob_out;
-      if (ioo & (sc_mux == 6'o7)) dma_2_program_control_word <= iob_out;
+
+      if (ioo & ~dma_2_reg_selector & (sc_mux == 6'o3)) dma_2_address_word <= iob_out[14:0];
+      if (ioo & ~dma_2_reg_selector & (sc_mux == 6'o3)) dma_2_direction_ff <= iob_out[15];
+      if (ioo & dma_2_reg_selector & (sc_mux== 6'o3)) dma_2_block_length <= iob_out[13:0];
+      if (ioo & dma_2_reg_selector & (sc_mux== 6'o3)) dma_2_overflow_ff <= 1'b0;
+
+      if (ioo & (sc_mux == 6'o6)) dma_1_program_control_word <= iob_out[5:0];
+      if (ioo & (sc_mux == 6'o6)) dma_1_stc_on_every_transfer <= iob_out[15];
+      if (ioo & (sc_mux == 6'o6)) dma_1_char_mode_ff <= iob_out[14];
+      if (ioo & (sc_mux == 6'o6)) dma_1_clc_on_last_transfer <= iob_out[13];
+
+      if (ioo & (sc_mux == 6'o7)) dma_2_program_control_word <= iob_out[5:0];
+      if (ioo & (sc_mux == 6'o7)) dma_2_stc_on_every_transfer <= iob_out[15];
+      if (ioo & (sc_mux == 6'o7)) dma_2_char_mode_ff <= iob_out[14];
+      if (ioo & (sc_mux == 6'o7)) dma_2_clc_on_last_transfer <= iob_out[13];
+
       if (crs | (clc & (sc_mux == 6'o6))) dma_1_control_ff <= 1'b0;
       if (crs | (clc & (sc_mux == 6'o7))) dma_2_control_ff <= 1'b0;
       if (stc & (sc_mux == 6'o6)) dma_1_control_ff <= 1'b1;
       if (stc & (sc_mux == 6'o7)) dma_2_control_ff <= 1'b1;  
 
+      if (stc & (sc_mux == 6'o6)) dma_1_transfer_enable_ff <= 1'b1;
+      else if (crs | (dma_1_flagbuffer_ff & state45) ) dma_1_transfer_enable_ff <= 1'b0;
+
+      if (stc & (sc_mux == 6'o7)) dma_2_transfer_enable_ff <= 1'b1;
+      else if (crs | (dma_2_flagbuffer_ff & state45) ) dma_2_transfer_enable_ff <= 1'b0;
+
       // DMA 1 flag_buffer, flag and irq
       if ((clf & (sc_mux == 6'o6)) |  (iak & dma_1_irq_ff)) dma_1_flagbuffer_ff <= 1'b0;
-      else if (popio | (stf & (sc_mux == 6'o6)) | dma_1_end_of_transfer) dma_1_flagbuffer_ff <= 1'b1;
+      else if (popio | (stf & (sc_mux == 6'o6)) | (dma_1_end_of_transfer & dma_1_transfer_enable_ff)) dma_1_flagbuffer_ff <= 1'b1;
 
       // flag flip/flop
       if (dma_1_flagbuffer_ff & enf) dma_1_flag_ff <= 1'b1;
@@ -700,7 +746,7 @@ end
 
       // DMA 2 flag_buffer, flag and irq
       if ((clf & (sc_mux == 6'o7)) |  (iak & dma_2_irq_ff)) dma_2_flagbuffer_ff <= 1'b0;
-      else if (popio | (stf & (sc_mux == 6'o7)) | dma_2_end_of_transfer) dma_2_flagbuffer_ff <= 1'b1;
+      else if (popio | (stf & (sc_mux == 6'o7)) | (dma_2_end_of_transfer& dma_2_transfer_enable_ff)) dma_2_flagbuffer_ff <= 1'b1;
 
       // flag flip/flop
       if (dma_2_flagbuffer_ff & enf) dma_2_flag_ff <= 1'b1;
@@ -795,6 +841,12 @@ end
       end
 
       // PRESET resets the phase and T-state counter to the start state.
+
+      // TODO: 
+      // The popio signal need to be generated here but is it is a async signal coming from the nrst.
+      // what is the best way of dealing with this?
+      // need more investigation.
+
       if (preset_btn) begin
         phase  <= PH_FETCH;
         tstate <= T0;
@@ -1291,26 +1343,26 @@ end
             PH_DMA: begin
               if (tstate == T1) begin
                 if (dma_1_active) begin 
-                  if (dma_1_program_control_word[15] == 1'b0)
+                  if (dma_1_stc_on_every_transfer == 1'b0)
                     dma_1_storage_register <= mem_rdata;
                 end else begin
-                  if (dma_2_program_control_word[15] == 1'b0)
+                  if (dma_2_stc_on_every_transfer == 1'b0)
                     dma_2_storage_register <= mem_rdata;
                 end
               end
               if (tstate == T2) begin
                 if (dma_1_active) begin
-                  dma_1_block_length[13:0] <=  dma_1_block_length[13:0] + 14'o00001;  
+                  { dma_1_overflow_ff, dma_1_block_length[13:0] } <=  { 1'b0, dma_1_block_length[13:0] } + 14'o00001;  
                 end else begin
-                  dma_2_block_length[13:0] <=  dma_2_block_length[13:0] + 14'o00001;
+                  { dma_2_overflow_ff, dma_2_block_length[13:0] } <=  { 1'b0, dma_2_block_length[13:0]} + 14'o00001;
                 end
               end
               if (tstate == T4) begin
                 if (dma_1_active) begin 
-                  if (dma_1_program_control_word[15] == 1'b1)
+                  if (dma_1_stc_on_every_transfer == 1'b1)
                     dma_1_storage_register <= iob_in_internal;
                 end else begin
-                  if (dma_2_program_control_word[15] == 1'b1)
+                  if (dma_2_stc_on_every_transfer == 1'b1)
                     dma_2_storage_register <= iob_in_internal;
                 end
               end
