@@ -455,7 +455,13 @@ They might differ??
     is_jmp = (op4 == 4'o5);
     ioo = state34 & (((TR[8:6] == 3'o6) && is_io_instr) | dma_ioo);
     ioi = state45 & ((((TR[8:6] == 3'o5) | (TR[8:6] == 3'o4)) && is_io_instr) | dma_ioi);
-    iob_out = ioo ? (IR[1] ? B : A) : 16'h0000;
+    if (phase == PH_DMA) begin
+      iob_out = ioo ? iob_out_dma : 16'h0000;  
+    end
+    else begin
+      iob_out = ioo ? (IR[1] ? B : A) : 16'h0000;  
+    end
+    
     sfs = is_io_instr & (TR[8:6] == 3'o3);
     sfc = is_io_instr & (TR[8:6] == 3'o2);
     sfs_intp = sfs & msc0 & lsc0 & Interrupt_System_Enable;
@@ -655,6 +661,11 @@ endfunction
   logic dma_1_cycle_div_ff,dma_2_cycle_div_ff;
   logic dma_1_cycle_request_ff, dma_2_cycle_request_ff;
   logic dma_1_request, dma_2_request;
+  logic dma_1_cycle_div_toggle;
+  logic dma_1_cycle_div_toggle_delayed;
+  logic dma_2_cycle_div_toggle;
+  logic dma_2_cycle_div_toggle_delayed;  
+  logic [15:0] iob_out_dma; 
   always_comb begin
     // DMA combinatorial logic
     prh_in_to_dma_1 = 1'b1;
@@ -725,7 +736,38 @@ endfunction
     dma_1_request = dma_1_transfer_enable_ff && srq_for_sc(dma_1_program_control_word);
 
     dma_2_request = !dma_1_request && dma_2_transfer_enable_ff && srq_for_sc(dma_2_program_control_word);
-
+    dma_1_cycle_div_toggle = dma_1_cycle_request_ff && (phase == PH_DMA);
+    dma_2_cycle_div_toggle = dma_2_cycle_request_ff && (phase == PH_DMA);
+    if (dma_1_cycle_request_ff) begin
+      if (dma_1_char_mode_ff) begin
+        if (dma_1_cycle_div_ff) begin
+          iob_out_dma[7:0] = dma_1_storage_register[15:8];  
+        end
+        else begin
+          iob_out_dma[7:0] = dma_1_storage_register[7:0];  
+        end
+      end 
+      else begin
+        iob_out_dma = dma_1_storage_register;
+      end          
+    end 
+    else if (dma_2_cycle_request_ff) begin
+      if (dma_2_char_mode_ff) begin
+        if (dma_2_cycle_div_ff) begin
+          iob_out_dma[7:0] = dma_2_storage_register[15:8];  
+        end
+        else begin
+          iob_out_dma[7:0] = dma_2_storage_register[7:0];  
+        end
+      end 
+      else begin
+        iob_out_dma = dma_2_storage_register;
+      end        
+    end 
+    else begin
+      iob_out_dma = 16'o000000;  
+    end 
+    
   end
 
   // DMA process
@@ -757,6 +799,8 @@ endfunction
       dma_2_direction_ff <= 1'b0;
       dma_1_overflow_ff <= 1'b0;
       dma_2_overflow_ff <= 1'b0;
+      dma_1_cycle_div_toggle_delayed <= 1'b0;
+      dma_2_cycle_div_toggle_delayed <= 1'b0;
     end else begin
       if (crs | (clc & (sc_mux == 6'o2))) dma_1_reg_selector <= 1'b0;
       else if (stc & (sc_mux == 6'o2)) dma_1_reg_selector <= 1'b1;
@@ -825,6 +869,23 @@ endfunction
         dma_1_cycle_request_ff <= 1'b0;
         dma_2_cycle_request_ff <= 1'b0;        
       end    
+
+      dma_1_cycle_div_toggle_delayed <= dma_1_cycle_div_toggle;
+      dma_2_cycle_div_toggle_delayed <= dma_2_cycle_div_toggle;
+
+      if (stc & (sc_mux == 6'o6)) begin
+        dma_1_cycle_div_ff <= 1'b0;  
+      end 
+      else if ((dma_1_cycle_div_toggle && !dma_1_cycle_div_toggle_delayed)) begin 
+        dma_1_cycle_div_ff <= ~dma_1_cycle_div_ff; 
+      end
+
+      if (stc & (sc_mux == 6'o7)) begin
+        dma_2_cycle_div_ff <= 1'b0;  
+      end 
+      else if ((dma_2_cycle_div_toggle && !dma_2_cycle_div_toggle_delayed)) begin 
+        dma_2_cycle_div_ff <= ~dma_2_cycle_div_ff; 
+      end      
     end
   end
 
@@ -1413,10 +1474,14 @@ endfunction
               if (tstate == T1) begin
 
                 if (dma_1_cycle_request_ff & dma_1_direction_ff) begin
-                    dma_1_storage_register <= mem_rdata;
+                    if ((dma_1_char_mode_ff & ~dma_1_cycle_div_ff) | ~dma_1_char_mode_ff) begin
+                      dma_1_storage_register <= mem_rdata;
+                    end
                 end 
                 else if (dma_2_cycle_request_ff & dma_2_direction_ff ) begin
-                    dma_2_storage_register <= mem_rdata;
+                    if ((dma_2_char_mode_ff & ~dma_2_cycle_div_ff) | ~dma_2_char_mode_ff) begin
+                      dma_2_storage_register <= mem_rdata;
+                    end
                 end 
 
               end
@@ -1430,14 +1495,36 @@ endfunction
               end
               if (tstate == T4) begin
                 if (dma_1_cycle_request_ff) begin
-                    dma_1_storage_register <= iob_in_internal;
+                    if (dma_1_char_mode_ff) begin
+                      if (dma_1_cycle_div_ff)  begin // even cycle go low bits
+                        dma_1_storage_register[7:0]  <= iob_in_internal[7:0];  
+                      end
+                      else begin // odd cycle go to high bits
+                        dma_1_storage_register[15:8]  <= iob_in_internal[7:0];    
+                      end
+                    end
+                    else begin
+                      dma_1_storage_register <= iob_in_internal;
+                    end
                 end 
                 else if (dma_2_cycle_request_ff) begin
-                    dma_2_storage_register <= iob_in_internal;
+                    if (dma_2_char_mode_ff) begin
+                      if (dma_2_cycle_div_ff)  begin // even cycle go low bits
+                        dma_2_storage_register[7:0]  <= iob_in_internal[7:0];  
+                      end
+                      else begin // odd cycle go to high bits
+                        dma_2_storage_register[15:8]  <= iob_in_internal[7:0];    
+                      end
+                    end
+                    else begin
+                      dma_2_storage_register <= iob_in_internal;
+                    end
                 end                  
               end
               if (tstate == T5) begin
-                mem_we <= 1'b1;
+                if ((dma_1_char_mode_ff & dma_1_cycle_div_ff) | ~dma_1_char_mode_ff) begin  // write on word transfers or when even cycle
+                  mem_we <= 1'b1;
+                end
               end  
               if (tstate == T6) begin
                 mem_we <= 1'b0;

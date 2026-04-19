@@ -45,7 +45,7 @@ module tb_hp2116;
   logic [7:0] ptr_dataout;
   logic ptr_feedhole;
   logic ptr_read;
-
+  longint cycles;
     // File handle and temporary variable for the paper tape reader.
   integer ptr_fd;
   integer ptr_c;
@@ -1199,7 +1199,15 @@ end
     // Enable single-cycle mode and do two phase-steps
     //pulse_btn(single_cycle_btn); // enter single mode + arm one phase
     pulse_btn(run_btn);          // RUN
-    repeat (900000000) @(posedge clk);  // CPU will advance one phase and stop (armed consumed)
+
+
+// Kodkommentar: Sätt hur många cykler som ska köras.
+    cycles = 64'd6000000000;
+
+    // Kodkommentar: Vänta på exakt angivet antal klockcykler.
+    for (longint i = 0; i < cycles; i++) begin
+        @(posedge clk);
+    end
 
     //pulse_btn(single_cycle_btn); // arm another phase
     repeat (50) @(posedge clk);
