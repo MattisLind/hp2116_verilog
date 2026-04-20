@@ -117,7 +117,8 @@ module hp12566b #(
   logic [15:0]  dataoutreg;
   logic [15:0]  datainreg;
   logic        flag_conditioned;
-
+  logic        flag_d;
+  
   always_comb begin
     // The 12597A uses only the lower select code.
     sel_l  = iog && scm_l && scl_l;
@@ -181,13 +182,17 @@ module hp12566b #(
       command_ff <= 1'b0;
       party_line_ff <= 1'b0;
       data_ff <= 1'b0;
+      flag_d <= 1'b0;
       end else begin
         //--------------------------------------------------------------------
         // Simple flip-flop controls
         //--------------------------------------------------------------------
+
+        flag_d <= flag;
+
         // flag buffer flip/flop
         if (do_clf |  (iak & irq_ff)) flag_buffer_ff <= 1'b0;
-        else if (do_stf | ((((jumper_w3 == "A") && flag) || ((jumper_w3 == "B") && ~flag)) & ~flag_ff)) flag_buffer_ff <= 1'b1;
+        else if (do_stf | ((((jumper_w3 == "A") && (flag & ~flag_d)) || ((jumper_w3 == "B") && (~flag & flag_d))) & ~flag_ff)) flag_buffer_ff <= 1'b1;
 
         // flag flip/flop
         if (flag_buffer_ff & enf) flag_ff <= 1'b1;
