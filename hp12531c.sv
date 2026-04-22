@@ -168,7 +168,7 @@ module hp12531c #(
   // Main sequential logic
   //--------------------------------------------------------------------------
   always_ff @(posedge clk or popio) begin
-    if (crs) begin
+    if (popio) begin
       flag_ff       <= 1'b0;
       flag_buffer_ff <= 1'b1;
       irq_ff        <= 1'b0;
@@ -202,8 +202,13 @@ module hp12531c #(
         if (do_clc | crs) control_ff <= 1'b0;
         if (do_stc) control_ff <= 1'b1;
 
-        if (do_ioo & iob_out[15]) inout_ff <= iob_out[14];
+        if (crs) inout_ff <= 1'b1;
+        else if (do_ioo & iob_out[15]) inout_ff <= iob_out[14];
+
+        if (crs) print_ff <= 1'b0;
         if (do_ioo & iob_out[15]) print_ff <= iob_out[13];
+
+        if (crs) punch_ff <= 1'b0;
         if (do_ioo & iob_out[15]) punch_ff <= iob_out[12];
 
         if (stop_condition & t3) counter_reset_ff <= 1'b0;
@@ -219,7 +224,7 @@ module hp12531c #(
         else baudrategen <= baudrategen + 13'd1;
 
         if ((do_stc & ~inout_ff) || (~serial_in_or_flag & inout_ff)) clock_enable_ff <= 1'b1;
-        else if (~counter_reset_ff & sir) clock_enable_ff <= 1'b0;
+        else if ((~counter_reset_ff & sir) | crs) clock_enable_ff <= 1'b0;
 
         if (do_stc & inout_ff) read_ff <= 1'b1;
         else if (~uart_rx) read_ff <= 1'b0;

@@ -1202,7 +1202,7 @@ end
 
 
 // Kodkommentar: Sätt hur många cykler som ska köras.
-    cycles = 64'd6000000000;
+    cycles = 64'd60000000000;
 
     // Kodkommentar: Vänta på exakt angivet antal klockcykler.
     for (longint i = 0; i < cycles; i++) begin
@@ -1273,6 +1273,7 @@ end
           else if (saved_A == 16'o146200) sw <= 16'o000011;
           else if (saved_A == 16'o101220) sw <= 16'o000012;
           else if (saved_A == 16'o143300) sw <= 16'o000012; 
+          else if (saved_A == 16'o101105) sw <= 16'o000012;
           else sw <= 16'o000000;
           $display("sw=%06o", sw);
           // Wait a little before pulsing the RUN button
@@ -1328,9 +1329,16 @@ end
         pulse_btn(run_btn);
         #1
         $display("TIME %0t: Set reader OFF", $time);
+      end else if ((cpu.TR == 16'o102027) && (DSN=="101105")) begin 
+        #1
+        pulse_btn(preset_btn);
+        #1
+        $display("TIME %0t:Press PRESET BUTTON", $time);
+        pulse_btn(run_btn);
+        #1;
       end else if ((cpu.TR == 16'o107076) && (loadfile =="diagnostics/24185-60001_Rev-A.abin")) begin
         #1;
-        sw <= 16'b0000111001000000;
+        sw <= 16'b0000111011000000;
         #1;
         pulse_btn(run_btn);
         #1;        
@@ -1356,7 +1364,7 @@ end
         #1;        
       end else if ((cpu.TR == 16'o103014) && (loadfile =="diagnostics/24185-60001_Rev-A.abin")) begin
         #1;
-        sw <= 16'b0000111000000000;
+        sw <= 16'b0000111010000000;
         #1
         //pulse_btn(preset_btn);
         #1;

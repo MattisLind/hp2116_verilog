@@ -164,7 +164,7 @@ hp12531c serial (
   .scl_l(lsc0),
 
   .iog(iog),
-  .popio(popio),
+  .popio(popio | preset_btn),
 
   .iob16_or_bios_n(1'b0),
 
@@ -217,7 +217,7 @@ hp12597a ptr (
   .scl_l(lsc1),
 
   .iog(iog),
-  .popio(popio),
+  .popio(popio | preset_btn),
 
   .iob16_or_bios_n(1'b0),
 
@@ -275,7 +275,7 @@ hp12566b dmatest (
   .scl_l(lsc2),
 
   .iog(iog),
-  .popio(popio),
+  .popio(popio | preset_btn),
 
   .iob16_or_bios_n(1'b0),
 
@@ -843,7 +843,7 @@ endfunction
 
       // DMA 1 flag_buffer, flag and irq
       if ((clf & (sc_mux == 6'o6)) |  (iak & dma_1_irq_ff)) dma_1_flagbuffer_ff <= 1'b0;
-      else if (popio | (stf & (sc_mux == 6'o6)) | (dma_1_overflow_ff & dma_1_transfer_enable_ff)) dma_1_flagbuffer_ff <= 1'b1;
+      else if (popio | preset_btn | (stf & (sc_mux == 6'o6)) | (dma_1_overflow_ff & dma_1_transfer_enable_ff)) dma_1_flagbuffer_ff <= 1'b1;
 
       // flag flip/flop
       if (dma_1_flagbuffer_ff & enf) dma_1_flag_ff <= 1'b1;
@@ -855,7 +855,7 @@ endfunction
 
       // DMA 2 flag_buffer, flag and irq
       if ((clf & (sc_mux == 6'o7)) |  (iak & dma_2_irq_ff)) dma_2_flagbuffer_ff <= 1'b0;
-      else if (popio | (stf & (sc_mux == 6'o7)) | (dma_2_overflow_ff & dma_2_transfer_enable_ff)) dma_2_flagbuffer_ff <= 1'b1;
+      else if (popio | preset_btn| (stf & (sc_mux == 6'o7)) | (dma_2_overflow_ff & dma_2_transfer_enable_ff)) dma_2_flagbuffer_ff <= 1'b1;
 
       // flag flip/flop
       if (dma_2_flagbuffer_ff & enf) dma_2_flag_ff <= 1'b1;
