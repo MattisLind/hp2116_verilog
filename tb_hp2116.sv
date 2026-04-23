@@ -75,6 +75,7 @@ module tb_hp2116;
   // Kodkommentar: Styr om återläsning från fil är tillåten eller stoppad.
   logic playback_enable;
   logic loader_protected_switch;
+  logic [15:0] uc_databus;
   // CPU instance
   hp2116_cpu #(
   ) cpu (
@@ -108,8 +109,11 @@ module tb_hp2116;
     .ptr_dataout(ptr_dataout),
     .ptr_feedhole(ptr_feedhole),
     .ptr_read(ptr_read),
-    .loader_protected_switch(loader_protected_switch)
+    .loader_protected_switch(loader_protected_switch),
+    .uc_databus(uc_databus)
   );
+
+  assign uc_databus = 'z;
 
   // Clock
   initial clk = 1'b0;

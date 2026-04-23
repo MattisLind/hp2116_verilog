@@ -55,8 +55,11 @@ module hp2116_cpu #(
   input  logic [7:0]   ptr_datain,
   output logic [7:0]   ptr_dataout,
   input  logic         ptr_feedhole,
-  output logic         ptr_read
+  output logic         ptr_read,
+  inout  logic [15:0]  uc_databus
 );
+
+
 
   //--------------------------------------------------------------------------
   // Registers
@@ -79,7 +82,7 @@ module hp2116_cpu #(
   logic iog;
   logic prl;
   logic flgl;
-  logic flgl11, flgl12;
+  logic flgl11, flgl12, flgl13;
   logic sfc;
   logic irq10;
   logic clf;
@@ -88,7 +91,7 @@ module hp2116_cpu #(
   logic iak;
   logic t3;
   logic skf;
-  logic flgh_dummy1, flgh_dummy2, flgh_dummy3;
+  logic flgh_dummy1, flgh_dummy2, flgh_dummy3, flgh_dummy4;
 
   logic ioo;
   logic clc;
@@ -101,7 +104,7 @@ module hp2116_cpu #(
   logic irqh_dummy3;
   logic srq10, srq11, srq12, srq13, srq14, srq15, srq16, srq17, srq20, srq21, srq22, srq23, srq24, srq25, srq26, srq27;
   logic [15:0] iob_out;
-  logic [15:0] iob_in10, iob_in11, iob_in12, iob_in_internal, dummy;
+  logic [15:0] iob_in10, iob_in11, iob_in12, iob_in_internal, dummy, iob_in13;
 
   logic sir;
   logic enf;
@@ -113,8 +116,8 @@ module hp2116_cpu #(
 
   logic crs;
   logic prl11;
-  logic irq11, irq12;
-  logic skf10, skf12;
+  logic irq11, irq12, irq13, irq14;
+  logic skf10, skf12, skf13;
   logic skf11;
   logic ptr_read_dummy;
   logic [7:0] ptr_dataout_dummy;
@@ -260,7 +263,7 @@ hp12566b dmatest (
   .clk(clk),
   .crs(crs),
 
-  .prl(prl),
+  .prl(prl_out_from_12),
   .flgl(flgl12),
   .sfc(sfc),
   .irql(irq12),
@@ -332,6 +335,61 @@ They might differ??
   .jumper_w8("IN"), // Position IN: Device Flag signal latches listed bits of the input data register. 
   .jumper_w9("A")  //  Position A: Allows the CLC, CRS, and Device Flag signals to clear the Device Command FF.
 */
+);
+
+
+hp13210a disk7900 (
+  .clk(clk),
+  .crs(crs),
+
+  .prl(prl),
+  .flgl(flgl13),
+  .sfc(sfc),
+  .irql(irq13),
+  .clf(clf),
+  .ien(Interrupt_System_Enable),
+  .stf(stf),
+  .iak(iak),
+  .t3(t3),
+  .skf(skf13),
+
+  .scm_l(msc1),
+  .scl_l(lsc3),
+
+  .iog(iog),
+  .popio(popio | preset_btn),
+
+  .iob16_or_bios_n(1'b0),
+
+  .srq(srq13),
+  .ioo(ioo),
+  .clc(clc),
+  .stc(stc),
+  .prh(prl_out_from_12),
+  .ioi(ioi),
+  .sfs(sfs),
+
+  .irqh(irq14),
+  .scl_h(msc1),
+  .scm_h(lsc4),
+
+  .iob_out(iob_out),
+  .iob_in(iob_in13),
+
+  .sir(sir),
+  .enf(enf),
+  .flgh(flgh_dummy4),
+
+  .run(RUN),
+
+  .edt(edt),
+  .pon(pon),
+  .bioo_n(1'b0),
+  .sfsb_or_bioi_n(1'b0),
+  .nale(1'b1),
+  .nwe(1'b1),
+  .noe(1'b1),
+  .ad(uc_databus)
 );
 
   //--------------------------------------------------------------------------
@@ -486,7 +544,6 @@ They might differ??
     end else begin
       unprotected = 1'b1;
     end
-    srq13 = 1'b0;
     srq14 = 1'b0;
     srq15 = 1'b0;
     srq16 = 1'b0;
@@ -655,7 +712,7 @@ endfunction
   logic dma_1_control_ff, dma_2_control_ff, dma_1_reg_selector, dma_2_reg_selector;
   logic dma_1_flag_ff, dma_2_flag_ff, dma_1_flagbuffer_ff, dma_2_flagbuffer_ff, dma_1_irq_ff, dma_2_irq_ff;
   logic dma_1_transfer_enable_ff, dma_2_transfer_enable_ff;
-  logic prh_in_to_dma_1, prl_out_from_dma_1, prh_in_to_dma_2, prl_out_from_dma_2;
+  logic prh_in_to_dma_1, prl_out_from_dma_1, prh_in_to_dma_2, prl_out_from_dma_2, prl_out_from_12;
   //logic dma_1_active;
 
   logic dma_ioi, dma_ioo, dma_stc, dma_clc, dma_clf;
