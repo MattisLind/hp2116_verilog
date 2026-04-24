@@ -75,7 +75,13 @@ module tb_hp2116;
   // Kodkommentar: Styr om återläsning från fil är tillåten eller stoppad.
   logic playback_enable;
   logic loader_protected_switch;
-  logic [15:0] uc_databus;
+  logic [15:0] stm32_fsmc_ad;
+  logic         stm32_fsmc_ne1;
+  logic         stm32_fsmc_nadv;
+  logic         stm32_fsmc_nwe;
+  logic         stm32_fsmc_noe;
+  logic         stm32_irq;
+  logic         stm32_drq;
   // CPU instance
   hp2116_cpu #(
   ) cpu (
@@ -110,11 +116,20 @@ module tb_hp2116;
     .ptr_feedhole(ptr_feedhole),
     .ptr_read(ptr_read),
     .loader_protected_switch(loader_protected_switch),
-    .uc_databus(uc_databus)
+    .stm32_fsmc_ne(stm32_fsmc_ne1),
+    .stm32_fsmc_nadv(stm32_fsmc_nadv),
+    .stm32_fsmc_nwe(stm32_fsmc_nwe),
+    .stm32_fsmc_noe(stm32_fsmc_noe),
+    .stm32_fsmc_ad(stm32_fsmc_ad),
+    .stm32_irq(stm32_irq),
+    .stm32_drq(stm32_drq)
   );
 
-  assign uc_databus = 'z;
-
+  assign stm32_fsmc_ad = 'z;
+  assign stm32_fsmc_ne1 = 1'b1;
+  assign stm32_fsmc_nadv = 1'b1;
+  assign stm32_fsmc_nwe = 1'b1;
+  assign stm32_fsmc_noe = 1'b1;
   // Clock
   initial clk = 1'b0;
   always #5 clk = ~clk;
@@ -1278,6 +1293,7 @@ end
           else if (saved_A == 16'o101220) sw <= 16'o000012;
           else if (saved_A == 16'o143300) sw <= 16'o000012; 
           else if (saved_A == 16'o101105) sw <= 16'o000012;
+          else if (saved_A == 16'o151302) sw <= 16'o000013;
           else sw <= 16'o000000;
           $display("sw=%06o", sw);
           // Wait a little before pulsing the RUN button
@@ -1297,6 +1313,8 @@ end
           sw <= 16'o000400; 
         end if (DSN == "143300") begin
           sw <= 16'o006400; 
+        end if (DSN == "151302") begin
+          sw <= 16'o000004; 
         end else begin
           sw <= 16'o000000; 
         end

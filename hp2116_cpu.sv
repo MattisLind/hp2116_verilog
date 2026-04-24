@@ -56,7 +56,13 @@ module hp2116_cpu #(
   output logic [7:0]   ptr_dataout,
   input  logic         ptr_feedhole,
   output logic         ptr_read,
-  inout  logic [15:0]  uc_databus
+  input  logic         stm32_fsmc_ne,
+  input  logic         stm32_fsmc_nadv,
+  input  logic         stm32_fsmc_nwe,
+  input  logic         stm32_fsmc_noe,
+  inout  logic [15:0]        stm32_fsmc_ad,
+  output logic        stm32_irq,
+  output logic        stm32_drq
 );
 
 
@@ -386,10 +392,13 @@ hp13210a disk7900 (
   .pon(pon),
   .bioo_n(1'b0),
   .sfsb_or_bioi_n(1'b0),
-  .nale(1'b1),
-  .nwe(1'b1),
-  .noe(1'b1),
-  .ad(uc_databus)
+  .stm32_fsmc_ne(stm32_fsmc_ne),
+  .stm32_fsmc_nadv(stm32_fsmc_nadv),
+  .stm32_fsmc_nwe(stm32_fsmc_nwe),
+  .stm32_fsmc_noe(stm32_fsmc_noe),
+  .stm32_fsmc_ad(stm32_fsmc_ad),
+  .stm32_drq(stm32_drq),
+  .stm32_irq(stm32_irq)
 );
 
   //--------------------------------------------------------------------------
@@ -529,7 +538,7 @@ hp13210a disk7900 (
     skip_dma6 = (sfc & (sc == 6'o06) & ~dma_1_flag_ff) | (sfs & (sc == 6'o06) & dma_1_flag_ff);
     skip_dma7 = (sfc & (sc == 6'o07) & ~dma_2_flag_ff) | (sfs & (sc == 6'o07) & dma_2_flag_ff);
     skip_intp = sfc_intp | sfs_intp;
-    skip_io = skf10 | skf11 | skf12 | skip_intp | skip_dma6 | skip_dma7;
+    skip_io = skf10 | skf11 | skf12 | skf13 | skip_intp | skip_dma6 | skip_dma7;
     clf = ((clear_flag & normal_instruction_execution) | dma_clf) & state45;
     stf = set_flag & normal_instruction_execution & state45;
     stc = ((set_control & normal_instruction_execution)| dma_stc) & state34;
@@ -538,7 +547,7 @@ hp13210a disk7900 (
     sir = (tstate == T5);
     enf = (tstate == T2);
     crs = clc & msc0 & lsc0 | popio;
-    interrupt = (irq10 | irq11 | irq12 | dma_1_irq_ff | dma_2_irq_ff)  & Interrupt_System_Enable & Interrupt_Control;
+    interrupt = (irq10 | irq11 | irq12 | irq13 | irq14 | dma_1_irq_ff | dma_2_irq_ff)  & Interrupt_System_Enable & Interrupt_Control;
     if ((M >= 15'o77700) && loader_protected_switch) begin
       unprotected = 1'b0;
     end else begin
@@ -1630,6 +1639,12 @@ endfunction
                   end
                   else if (irq12) begin
                     M <= 15'o000012;                                    
+                  end
+                  else if (irq13) begin
+                    M <= 15'o000013;                                    
+                  end
+                  else if (irq14) begin
+                    M <= 15'o000014;                                    
                   end
                 end
               end
