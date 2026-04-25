@@ -143,7 +143,7 @@ fi
 #./build_hp2116.sh diagnostics/12732-16003_DSN111104_12732_FLEXIBLE_DISC_SUBSYSTEM.abin 111104 NO $TRACE
 
 # Running 7900/01 Cartridge Disc diagnostic  - diag failed - not implemented
-#./build_hp2116.sh diagnostics/12960-16001_DSN151302_7900_01_CARTRIDGE_DISC.abin 151302 NO $TRACE
+./build_hp2116.sh diagnostics/12960-16001_DSN151302_7900_01_CARTRIDGE_DISC.abin 151302 NO $TRACE
 
 # Running 7905/06/20/25 Disc diagnostic  - diag failed - not implemented
 #./build_hp2116.sh diagnostics/12962-16001_DSN151403_7905_06_20_25_DISC.abin 151403 NO $TRACE

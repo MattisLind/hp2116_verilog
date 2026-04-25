@@ -341,7 +341,7 @@ module tb_hp2116;
 
       // Kodkommentar: Beräkna linjär sektoradress, alltså LBA.
       chs_to_lba = ((cyl32 * HEADS_PER_CYL) + head32) * SECTORS_PER_TRK
-                  + (sector32 - 32'd1);
+                  + (sector32);
     end
   endfunction
 
@@ -362,6 +362,53 @@ module tb_hp2116;
     return 4'b0001 << in;
   endfunction
 
+    task automatic stm32_seek_worker(
+      input logic [1:0] seek_drive,
+      input logic [7:0] seek_cylinder,
+      input logic [1:0] seek_head,
+      input logic [4:0] seek_sector
+    );
+      begin
+        // Kodkommentar: Simulera mekanisk seek-tid utan att blockera STM32-huvudloopen.
+        $display("[%0t] STM32: Drive %0d seek started C=%0d H=%0d S=%0d LBA=%0d",
+                $time,
+                seek_drive,
+                seek_cylinder,
+                seek_head,
+                seek_sector,
+                chs_to_lba(seek_cylinder, seek_head, seek_sector));
+
+        #(4us);
+
+        // Kodkommentar: När seek är klar, signalera attention för rätt drive.
+        stm32_fsmc_write16(
+          STM32_REG_7900_ATTENTION,
+          {12'h000, decode2to4(seek_drive)}
+        );
+
+        $display("[%0t] STM32: Drive %0d seek complete",
+                $time, seek_drive);
+      end
+    endtask
+
+    task automatic stm32_wait_csr_bit_set(
+      input int bit_index
+    );
+      logic [15:0] csr_local;
+
+      begin
+        // Kodkommentar: Börja med noll så att loopen alltid gör minst en läsning.
+        csr_local = 16'h0000;
+
+        // Kodkommentar: Poll:a CSR tills vald bit är satt.
+        while (!csr_local[bit_index]) begin
+          stm32_fsmc_read16(STM32_REG_CSR, csr_local);
+
+          // Kodkommentar: Vänta lite mellan poll-läsningar så simulationen inte spinner för hårt.
+          #(200ns);
+        end
+      end
+    endtask
   // Kodkommentar: Bakgrundsmodell för STM32-firmware. Den pollar IRQ/DRQ med
   // Kodkommentar: #fördröjningar och är därför asynkron mot HP2116 CPU-klockan.
   initial begin : stm32_firmware_daemon
@@ -408,23 +455,42 @@ module tb_hp2116;
           end
 
           4'h3: begin
-            $display("[%0t] STM32: Got Seek Record command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
-            csr_value[1] = 1'b0;
-            stm32_fsmc_write16(STM32_REG_CSR, csr_value);            
+            logic [1:0] seek_drive;
+            logic [7:0] seek_cylinder;
+            logic [1:0] seek_head;
+            logic [4:0] seek_sector;
+
+            $display("[%0t] STM32: Got Seek Record command on drive %0d returning status = %06o",
+                    $time, drive, drivestatus[drive]);
+
+            // Kodkommentar: Spara drive lokalt, så att forkad kod inte påverkas av nästa kommando.
+            seek_drive = drive;
+            stm32_wait_csr_bit_set(6);
+            // Kodkommentar: Läs cylinder-ordet från FPGA.
             stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
-            cylinder[drive] = indata[7:0];
-            #1
-            while (~csr[6]) begin
-              stm32_fsmc_read16(STM32_REG_CSR, csr);  
-              #(200ns);
-            end
+            seek_cylinder = indata[7:0];
+
+            stm32_wait_csr_bit_set(6);
+
+            // Kodkommentar: Läs head/sector-ordet från FPGA.
             stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
-            head[drive] = indata[9:8];
-            sector[drive] = indata[4:0];
-            $display("[%0t] STM32: Drive %d seeking to cyl=%d, head=%d, sector=%d linear address = %d", $time,drive, cylinder[drive], head[drive], sector[drive], chs_to_lba(cylinder[drive], head[drive], sector[drive]));
-            #(4us);
-            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, {12'h000, decode2to4(drive)});
-            // set command flag
+            seek_head   = indata[9:8];
+            seek_sector = indata[4:0];
+
+            // Kodkommentar: Uppdatera aktuell position för vald drive direkt.
+            cylinder[seek_drive] = seek_cylinder;
+            head[seek_drive]     = seek_head;
+            sector[seek_drive]   = seek_sector;
+
+            // Kodkommentar: Starta seek i bakgrunden. Huvudloopen kan sedan ta fler kommandon.
+            fork
+              stm32_seek_worker(
+                seek_drive,
+                seek_cylinder,
+                seek_head,
+                seek_sector
+              );
+            join_none
           end
 
           4'h5: begin
@@ -1419,6 +1485,72 @@ initial begin
         4_000ns,
         20_000ns
     );
+    if (DSN=="151302") begin
+      uart_expect_and_respond(
+        uart_tx,
+        uart_rx,
+        "\r\n\r\nH0 7900/7901 CARTRIDGE DISC MEMORY DIAGNOSTIC\r\nH24 CYLINDER TABLE\r\n000,001,002,004,008,016,032,064,128,202 \r\nH25 WISH TO CHANGE?\r\n",
+        "NO\r",
+        4_000ns,
+        20_000_000ns
+      );
+      uart_expect_and_respond(
+          uart_tx,
+          uart_rx,
+          "\r\nH27 PATTERN TABLE \r\n000000  177777  125252  052525  007417  \r\n170360  162745  163346  155555  022222  \r\nH25 WISH TO CHANGE?\r\n",
+          "NO\r",
+          4_000ns,
+          20_000_000ns
+      );
+      uart_expect_and_respond(
+          uart_tx,
+          uart_rx,
+          "\r\nH62 TYPE A FOR HEADS 0,1;B FOR 2,3;C FOR ALTERNATELY 0,1 THEN 2,3\r\n",
+          "C\r",
+          4_000ns,
+          20_000_000ns
+      );
+      uart_expect_and_respond(
+          uart_tx,
+          uart_rx,
+          "\r\nH23  00020 ERRORS/PASS ALLOWED\r\nH25 WISH TO CHANGE?\r\n",
+          "NO\r",
+          4_000ns,
+          20_000_000ns
+      ); 
+      uart_expect_and_respond(
+          uart_tx,
+          uart_rx,
+          "\r\nH37 UNIT TABLE/ 01 DRIVE(S); 0\r\nH25 WISH TO CHANGE?\r\n",
+          "NO\r",
+          4_000ns,
+          20_000_000ns
+      ); 
+      #1;
+      pulse_btn(halt_btn);
+      #1;
+      sw = 16'o000000; 
+      #1;
+      pulse_btn(run_btn);
+      #1;
+      /*
+      uart_expect_and_respond(
+          uart_tx,
+          uart_rx,
+          "\r\nH24 CYLINDER TABLE\r\n000,001,002,004,008,016,032,064,128,202 \r\nH25 WISH TO CHANGE?\r\n",
+          "NO\r",
+          4_000ns,
+          20_000_000ns
+      );      
+      uart_expect_and_respond(
+          uart_tx,
+          uart_rx,
+          "\r\nH27 PATTERN TABLE \r\n000000  177777  125252  052525  007417  \r\n170360  162745  163346  155555  022222  \r\nH25 WISH TO CHANGE?\r\n",
+          "NO\r",
+          4_000ns,
+          20_000_000ns
+      );*/
+    end
     $display("Finished scripted UART exchange at time %0t", $time);
 end
 
@@ -1723,7 +1855,17 @@ end
         #1;
         pulse_btn(run_btn);
         #1;        
-      end else begin
+      end else if (DSN == "151302") begin 
+        $display("Halting temporarily in 151301 P=%05o TR=%06o", $time, cpu.P, cpu.TR);
+        if (cpu.P == 15'o076762) begin //TIME 449412385000: CPU HALTED P=076762 IR=000053 TR=126741 A=077341 B=017074
+          $display("will restart..."); 
+        end  
+        else begin
+          $display("Diag failed", $time);
+          $finish;          
+        end
+      end
+      else begin
         $display("Diag failed", $time);
         $finish;
       end
