@@ -125,14 +125,345 @@ module tb_hp2116;
     .stm32_drq(stm32_drq)
   );
 
-  assign stm32_fsmc_ad = 'z;
-  assign stm32_fsmc_ne1 = 1'b1;
-  assign stm32_fsmc_nadv = 1'b1;
-  assign stm32_fsmc_nwe = 1'b1;
-  assign stm32_fsmc_noe = 1'b1;
+  // --------------------------------------------------------------------------
+  // STM32/FSMC bus-functional model signals
+  // --------------------------------------------------------------------------
+  // Kodkommentar: Testbänken modellerar STM32-sidan som en asynkron FSMC-master.
+  // Kodkommentar: Dessa signaler styrs med #fördröjningar och är inte låsta till CPU-klockan.
+  logic [15:0] stm32_fsmc_ad_out;
+  logic        stm32_fsmc_ad_oe;
+
+  // Kodkommentar: AD-bussen är tre-states. Testbänken driver bara vid adressfas
+  // Kodkommentar: och vid skrivning. Vid läsning släpper testbänken bussen.
+  assign stm32_fsmc_ad = stm32_fsmc_ad_oe ? stm32_fsmc_ad_out : 16'hzzzz;
+
   // Clock
   initial clk = 1'b0;
   always #5 clk = ~clk;
+
+  // --------------------------------------------------------------------------
+  // STM32/FSMC register-access framework
+  // --------------------------------------------------------------------------
+  // Kodkommentar: Dessa adresser är bara en startpunkt. Ändra dem så att de
+  // Kodkommentar: matchar registerkartan i din 13210A/STM32-FPGA-brygga.
+  localparam logic [15:0] STM32_REG_CSR                     = 16'h00;
+  localparam logic [15:0] STM32_REG_7900_COMMAND_STATUS     = 16'h02;
+  localparam logic [15:0] STM32_REG_7900_DATA               = 16'h04;
+  localparam logic [15:0] STM32_REG_7900_ATTENTION          = 16'h06;
+
+  // Kodkommentar: Exempelbitar. Anpassa efter din verkliga registerdefinition.
+  //localparam logic [15:0] STM32_STATUS_BUSY = 16'h0001;
+  //localparam logic [15:0] STM32_STATUS_DRQ  = 16'h0002;
+  //localparam logic [15:0] STM32_STATUS_IRQ  = 16'h8000;
+
+  // Kodkommentar: Relativt långsamma FSMC-tider för att göra simuleringen lättläst.
+  // Kodkommentar: De behöver inte vara exakta STM32-tider; börja säkert och snäva åt senare.
+  localparam time FSMC_T_AS   = 20ns;  // address setup before NADV
+  localparam time FSMC_T_ALE  = 40ns;  // active-low NADV pulse width
+  localparam time FSMC_T_ADVH = 20ns;  // hold after address phase
+  localparam time FSMC_T_DS   = 20ns;  // data setup before NWE
+  localparam time FSMC_T_WR   = 80ns;  // write strobe width
+  localparam time FSMC_T_RD   = 100ns; // read strobe width before sample
+  localparam time FSMC_T_TURN = 30ns;  // bus turnaround / idle time
+
+  bit stm32_fsmc_trace;
+  bit stm32_fsmc_bus_busy;
+
+  assign stm32_fsmc_trace = 1'b1;
+
+
+  // Kodkommentar: Initiera den simulerade STM32/FSMC-master till inaktivt läge.
+  initial begin : stm32_fsmc_init
+    stm32_fsmc_ad_out   = 16'h0000;
+    stm32_fsmc_ad_oe    = 1'b0;
+    stm32_fsmc_ne1      = 1'b1;
+    stm32_fsmc_nadv     = 1'b1;
+    stm32_fsmc_nwe      = 1'b1;
+    stm32_fsmc_noe      = 1'b1;
+    stm32_fsmc_bus_busy = 1'b0;
+
+    if (!$value$plusargs("FSMC_TRACE=%b", stm32_fsmc_trace))
+      stm32_fsmc_trace = 1'b0;
+  end
+
+  // Kodkommentar: Vänta tills ingen annan testbänksprocess använder FSMC-bussen.
+  task automatic stm32_fsmc_lock_bus();
+    begin
+      while (stm32_fsmc_bus_busy)
+        #1ns;
+      stm32_fsmc_bus_busy = 1'b1;
+    end
+  endtask
+
+  // Kodkommentar: Släpp FSMC-bussen efter en komplett transaktion.
+  task automatic stm32_fsmc_unlock_bus();
+    begin
+      stm32_fsmc_bus_busy = 1'b0;
+    end
+  endtask
+
+  // Kodkommentar: Gemensam adressfas för multiplexad FSMC.
+  // Kodkommentar: NADV är aktiv låg och fungerar här som ALE/address-valid.
+  task automatic stm32_fsmc_address_phase(input logic [15:0] addr);
+    begin
+      //$display("stm32_fsmc_address_phase addr=%04h", addr);
+      stm32_fsmc_ne1    = 1'b0;
+      stm32_fsmc_noe    = 1'b1;
+      stm32_fsmc_nwe    = 1'b1;
+      stm32_fsmc_ad_out = addr;
+      stm32_fsmc_ad_oe  = 1'b1;
+
+      #(FSMC_T_AS);
+      stm32_fsmc_nadv = 1'b0;
+      //$display("stm32_fsmc_address_phase stm32_fsmc_ad_out=%04h", stm32_fsmc_ad_out);
+      #(FSMC_T_ALE);
+      stm32_fsmc_nadv = 1'b1;
+      #(FSMC_T_ADVH);
+    end
+  endtask
+
+  // Kodkommentar: Skriv ett 16-bitarsord till ett memory-mappat FPGA-register via FSMC.
+  // Kodkommentar: Tasken använder bara #fördröjningar och är helt oberoende av CPU clk.
+  task automatic stm32_fsmc_write16(
+    input logic [15:0] addr,
+    input logic [15:0] data
+  );
+    begin
+      stm32_fsmc_lock_bus();
+
+      stm32_fsmc_address_phase(addr);
+
+      stm32_fsmc_ad_out = data;
+      stm32_fsmc_ad_oe  = 1'b1;
+      #(FSMC_T_DS);
+
+      stm32_fsmc_nwe = 1'b0;
+      #(FSMC_T_WR);
+      stm32_fsmc_nwe = 1'b1;
+
+      #(FSMC_T_TURN);
+      stm32_fsmc_ne1    = 1'b1;
+      stm32_fsmc_ad_oe  = 1'b0;
+      stm32_fsmc_ad_out = 16'h0000;
+
+      if (stm32_fsmc_trace)
+        $display("FSMC WRITE addr=%04h data=%04h at time %0t", addr, data, $time);
+
+      stm32_fsmc_unlock_bus();
+    end
+  endtask
+
+  // Kodkommentar: Läs ett 16-bitarsord från ett memory-mappat FPGA-register via FSMC.
+  // Kodkommentar: Testbänken släpper AD-bussen före NOE så att DUT kan driva läsdata.
+  task automatic stm32_fsmc_read16(
+    input  logic [15:0] addr,
+    output logic [15:0] data
+  );
+    begin
+      //$display("stm32_fsmc_read16 addr=%04h data=%04h", addr, data);
+      stm32_fsmc_lock_bus();
+
+      stm32_fsmc_address_phase(addr);
+
+      // Kodkommentar: Read turnaround: släpp AD innan NOE aktiveras.
+      stm32_fsmc_ad_oe = 1'b0;
+      #(FSMC_T_TURN);
+
+      stm32_fsmc_noe = 1'b0;
+      #(FSMC_T_RD);
+      data = stm32_fsmc_ad;
+      stm32_fsmc_noe = 1'b1;
+
+      #(FSMC_T_TURN);
+      stm32_fsmc_ne1 = 1'b1;
+
+      if (stm32_fsmc_trace)
+        $display("FSMC READ  addr=%04h data=%04h at time %0t", addr, data, $time);
+
+      stm32_fsmc_unlock_bus();
+    end
+  endtask
+
+  // Kodkommentar: Pollar ett register tills maskade bitar matchar förväntat värde.
+  task automatic stm32_fsmc_poll16(
+    input  logic [15:0] addr,
+    input  logic [15:0] mask,
+    input  logic [15:0] expected,
+    input  int          max_polls,
+    output logic [15:0] last_value,
+    output bit          matched
+  );
+    int i;
+    begin
+      matched = 1'b0;
+      last_value = 16'h0000;
+
+      for (i = 0; i < max_polls; i++) begin
+        stm32_fsmc_read16(addr, last_value);
+        if ((last_value & mask) == expected) begin
+          matched = 1'b1;
+          return;
+        end
+        #(500ns);
+      end
+    end
+  endtask
+
+  // Kodkommentar: Exempel på högre nivå: läs IRQ-statusregistret när IRQ kommer.
+  task automatic stm32_handle_irq();
+    begin
+      logic [15:0] data;
+      stm32_fsmc_read16(STM32_REG_CSR, data);
+      $display("STM32 MODEL: IRQ observed, at time %0t", $time);
+
+      // Kodkommentar: Här kan du senare kvittera IRQ, t.ex. genom write-one-to-clear:
+      // stm32_fsmc_write16(STM32_REG_IRQ_STATUS, irq_status);
+    end
+  endtask
+
+  function automatic logic [31:0] chs_to_lba(
+    input logic [7:0] cyl,
+    input logic [1:0] head,
+    input logic [4:0] sector
+  );
+    localparam int unsigned HEADS_PER_CYL   = 4;
+    localparam int unsigned SECTORS_PER_TRK = 24;
+
+    logic [31:0] cyl32;
+    logic [31:0] head32;
+    logic [31:0] sector32;
+
+    begin
+      // Kodkommentar: Gör alla fält till 32-bitars unsigned-värden.
+      cyl32    = 32'(unsigned'(cyl));
+      head32   = 32'(unsigned'(head));
+      sector32 = 32'(unsigned'(sector));
+
+      // Kodkommentar: Beräkna linjär sektoradress, alltså LBA.
+      chs_to_lba = ((cyl32 * HEADS_PER_CYL) + head32) * SECTORS_PER_TRK
+                  + (sector32 - 32'd1);
+    end
+  endfunction
+
+  // Kodkommentar: Exempel på högre nivå: reagera på DRQ genom att läsa status.
+  task automatic stm32_handle_drq();
+    begin
+
+      $display("STM32 MODEL: DRQ observed at time %0t", $time);
+
+      // Kodkommentar: Här kan du senare streama data via STM32_REG_DATA.
+      // Exempel read path från FPGA:  stm32_fsmc_read16(STM32_REG_DATA, word);
+      // Exempel write path till FPGA: stm32_fsmc_write16(STM32_REG_DATA, word);
+    end
+  endtask
+
+  function automatic logic [3:0] decode2to4(input logic [1:0] in);
+  // Kodkommentar: Skiftar en etta till rätt position (one-hot).
+    return 4'b0001 << in;
+  endfunction
+
+  // Kodkommentar: Bakgrundsmodell för STM32-firmware. Den pollar IRQ/DRQ med
+  // Kodkommentar: #fördröjningar och är därför asynkron mot HP2116 CPU-klockan.
+  initial begin : stm32_firmware_daemon
+
+    logic [15:0] indata;
+    logic [3:0] command;
+    logic [15:0] drivestatus [3:0];
+    logic [7:0] cylinder [3:0];
+    logic [4:0] sector [3:0];
+    logic [1:0] head [3:0];
+    logic  [1:0] drive;
+    logic [15:0] csr_value;
+    logic [15:0] csr;
+    csr = 16'h0;
+    drivestatus = '{default: 16'b0100000000000000};
+    csr_value = 16'b0000000100000000;
+    wait (rst_n == 1'b1);
+    #(1us);
+    stm32_fsmc_write16(STM32_REG_CSR, csr_value);
+    forever begin
+      if (stm32_irq) begin
+        stm32_handle_irq();
+        stm32_fsmc_read16(STM32_REG_7900_COMMAND_STATUS, indata);
+        command = indata[15:12];
+        drive = indata[1:0];
+        $display("[%0t] STM32: Got command %04o drive = %1d protected= %1d defective=%1d", $time, command, drive, indata[9], indata[8]);
+        // Kodkommentar: Välj åtgärd beroende på kommando-koden.
+        case (command)
+          4'h0: begin
+            $display("[%0t] STM32: Got Status Check command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+            // set status bit active for output.
+            csr_value[1] = 1'b1;
+            stm32_fsmc_write16(STM32_REG_CSR, csr_value);
+            stm32_fsmc_write16(STM32_REG_7900_COMMAND_STATUS, drivestatus[drive]);
+            drivestatus[drive][14] = 0; // reset initial status   
+          end
+
+          4'h1: begin
+            $display("[%0t] STM32: Got Write Data command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+          end
+
+          4'h2: begin
+            $display("[%0t] STM32: Got Read Data command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+          end
+
+          4'h3: begin
+            $display("[%0t] STM32: Got Seek Record command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+            csr_value[1] = 1'b0;
+            stm32_fsmc_write16(STM32_REG_CSR, csr_value);            
+            stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
+            cylinder[drive] = indata[7:0];
+            #1
+            while (~csr[6]) begin
+              stm32_fsmc_read16(STM32_REG_CSR, csr);  
+              #(200ns);
+            end
+            stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
+            head[drive] = indata[9:8];
+            sector[drive] = indata[4:0];
+            $display("[%0t] STM32: Drive %d seeking to cyl=%d, head=%d, sector=%d linear address = %d", $time,drive, cylinder[drive], head[drive], sector[drive], chs_to_lba(cylinder[drive], head[drive], sector[drive]));
+            #(4us);
+            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, {12'h000, decode2to4(drive)});
+            // set command flag
+          end
+
+          4'h5: begin
+            $display("[%0t] STM32: Got Refine Sector command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+          end
+
+          4'h6: begin
+            $display("[%0t] STM32: Got Check Data command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+          end
+
+          4'h9: begin
+            $display("[%0t] STM32: Got Initialize Data command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+          end          
+
+          4'hb: begin
+            $display("[%0t] STM32: Got Address Record command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+          end
+
+          default: begin
+            // Kodkommentar: Okänt eller ännu ej implementerat kommando.
+            $display("[%0t] STM32: Unknown command %h, raw word=%h",
+                    $time, command, indata);
+          end
+        endcase
+
+        wait (!stm32_irq);
+      end
+      else if (stm32_drq) begin
+        stm32_handle_drq();
+
+        // Kodkommentar: Vänta tills DRQ släpps. Ta bort detta senare om DRQ ska servas
+        // Kodkommentar: flera gånger medan den ligger kvar aktiv.
+        wait (!stm32_drq);
+      end
+      else begin
+        #(500ns);
+      end
+    end
+  end
 
   // Synchronous memory model
   // Read data is updated on posedge to get deterministic timing.

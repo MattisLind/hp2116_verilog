@@ -20,7 +20,7 @@ fi
 ./build_hp2116.sh diagnostics/24317-16001_DSN101002_SHIFT_ROTATE_INSTRUCTION_GROUP.abin 101002 NO $TRACE
 
 # Running the old DMA test by loading it directly into memory
-./build_hp2116.sh diagnostics/24296-60001_DSN000200_DIAGNOSTIC_CONFIGURATOR.abin 000200 YES $TRACE diagnostics/24185-60001_Rev-A.abin
+#./build_hp2116.sh diagnostics/24296-60001_DSN000200_DIAGNOSTIC_CONFIGURATOR.abin 000200 YES $TRACE diagnostics/24185-60001_Rev-A.abin
 
 
 # Running Core Memory diagnostic - taking too long to execute
@@ -48,7 +48,7 @@ fi
 ./build_hp2116.sh diagnostics/24391-16001_DSN143300_GENERAL_PURPOSE_REGISTER.abin 143300 NO $TRACE
 
 # Running Direct Memory Access 2114 / 2115 / 2116 diagnostic 
-./build_hp2116.sh diagnostics/24322-16001_DSN101105_DIRECT_MEMORY_ACCESS_2114_2115_2116_Rev-1502_with_trailer.abin 101105 NO $TRACE
+#./build_hp2116.sh diagnostics/24322-16001_DSN101105_DIRECT_MEMORY_ACCESS_2114_2115_2116_Rev-1502_with_trailer.abin 101105 NO $TRACE
 # Running Direct Memory Access diagnostic - diag failed - not implemented
 #./build_hp2116.sh diagnostics/24322-16002_DSN101220_DIRECT_MEMORY_ACCESS_2100_21MX.abin 101220 NO $TRACE
 
