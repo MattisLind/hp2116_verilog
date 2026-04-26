@@ -366,7 +366,8 @@ module tb_hp2116;
       input logic [1:0] seek_drive,
       input logic [7:0] seek_cylinder,
       input logic [1:0] seek_head,
-      input logic [4:0] seek_sector
+      input logic [4:0] seek_sector, 
+      ref logic [15:0] drivestatus [3:0]
     );
       begin
         // Kodkommentar: Simulera mekanisk seek-tid utan att blockera STM32-huvudloopen.
@@ -378,8 +379,8 @@ module tb_hp2116;
                 seek_sector,
                 chs_to_lba(seek_cylinder, seek_head, seek_sector));
 
-        #(4us);
-
+        #(4ms);
+        drivestatus[seek_drive] = 16'b0000000000000000;  // Not busy any longer.
         // Kodkommentar: När seek är klar, signalera attention för rätt drive.
         stm32_fsmc_write16(
           STM32_REG_7900_ATTENTION,
@@ -409,6 +410,37 @@ module tb_hp2116;
         end
       end
     endtask
+
+    // Kodkommentar: Läser seek/adress-argument från FPGA och returnerar dem till anroparen.
+    task automatic stm32_read_seek_address(
+        input  logic [1:0] drive,
+        output logic [1:0] seek_drive,
+        output logic [7:0] seek_cylinder,
+        output logic [1:0] seek_head,
+        output logic [4:0] seek_sector
+    );
+        logic [15:0] indata;
+
+        begin
+            // Kodkommentar: Spara drive lokalt för efterföljande logik.
+            seek_drive = drive;
+
+            // Kodkommentar: Läs cylinder-ordet.
+            stm32_wait_csr_bit_set(6);
+            stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
+            seek_cylinder = indata[7:0];
+
+            // Kodkommentar: Läs head/sector-ordet.
+            stm32_wait_csr_bit_set(6);
+            stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
+            seek_head   = indata[9:8];
+            seek_sector = indata[4:0];
+
+
+        end
+    endtask
+
+
   // Kodkommentar: Bakgrundsmodell för STM32-firmware. Den pollar IRQ/DRQ med
   // Kodkommentar: #fördröjningar och är därför asynkron mot HP2116 CPU-klockan.
   initial begin : stm32_firmware_daemon
@@ -440,7 +472,7 @@ module tb_hp2116;
           4'h0: begin
             $display("[%0t] STM32: Got Status Check command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
             // set status bit active for output.
-            csr_value[1] = 1'b1;
+            csr_value[1] = 1'b0;
             stm32_fsmc_write16(STM32_REG_CSR, csr_value);
             stm32_fsmc_write16(STM32_REG_7900_COMMAND_STATUS, drivestatus[drive]);
             drivestatus[drive][14] = 0; // reset initial status   
@@ -455,42 +487,51 @@ module tb_hp2116;
           end
 
           4'h3: begin
+
             logic [1:0] seek_drive;
             logic [7:0] seek_cylinder;
             logic [1:0] seek_head;
             logic [4:0] seek_sector;
-
-            $display("[%0t] STM32: Got Seek Record command on drive %0d returning status = %06o",
-                    $time, drive, drivestatus[drive]);
-
-            // Kodkommentar: Spara drive lokalt, så att forkad kod inte påverkas av nästa kommando.
-            seek_drive = drive;
-            stm32_wait_csr_bit_set(6);
-            // Kodkommentar: Läs cylinder-ordet från FPGA.
-            stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
-            seek_cylinder = indata[7:0];
-
-            stm32_wait_csr_bit_set(6);
-
-            // Kodkommentar: Läs head/sector-ordet från FPGA.
-            stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
-            seek_head   = indata[9:8];
-            seek_sector = indata[4:0];
-
-            // Kodkommentar: Uppdatera aktuell position för vald drive direkt.
-            cylinder[seek_drive] = seek_cylinder;
-            head[seek_drive]     = seek_head;
-            sector[seek_drive]   = seek_sector;
-
-            // Kodkommentar: Starta seek i bakgrunden. Huvudloopen kan sedan ta fler kommandon.
-            fork
-              stm32_seek_worker(
+            $display("[%0t] STM32: Got Seek Record command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+            // Kodkommentar: Läs adressparametrar från kommandot.
+            stm32_read_seek_address(
+                drive,
                 seek_drive,
                 seek_cylinder,
                 seek_head,
                 seek_sector
-              );
-            join_none
+            );
+            $display("[%0t] STM32: Retrieved cylinder = %d head = %d and sector =%d", $time, seek_cylinder, seek_head, seek_sector);
+            // Kodkommentar: Uppdatera aktuell position för vald drive.
+            cylinder[seek_drive] = seek_cylinder;
+            head[seek_drive]     = seek_head;
+            sector[seek_drive]   = seek_sector;
+
+            if ((seek_cylinder > 8'd202) ||
+                (seek_sector > 5'd23) ||
+                (drivestatus[seek_drive][2] == 1'b1)) begin
+
+                // Kodkommentar: Markera seek error. 
+                drivestatus[seek_drive] = 16'b0000000100000000;
+                $display("[%0t] STM32: Got Seek Record command - invalid address", $time);
+                stm32_fsmc_write16(STM32_REG_7900_ATTENTION,{12'h000, decode2to4(seek_drive)});
+            end
+            else begin
+                // Kodkommentar: Markera drive busy.
+                drivestatus[seek_drive] = 16'b0000000000000100;
+
+                // Kodkommentar: Starta seek i bakgrunden.
+                fork
+                    stm32_seek_worker(
+                        seek_drive,
+                        seek_cylinder,
+                        seek_head,
+                        seek_sector,
+                        drivestatus
+                    );
+                join_none
+            end
+            $display("[%0t] STM32: End Seek Record command", $time);
           end
 
           4'h5: begin
@@ -506,7 +547,26 @@ module tb_hp2116;
           end          
 
           4'hb: begin
+            logic [1:0] seek_drive;
+            logic [7:0] seek_cylinder;
+            logic [1:0] seek_head;
+            logic [4:0] seek_sector;            
             $display("[%0t] STM32: Got Address Record command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+
+
+            // Kodkommentar: Läs adressparametrar från kommandot.
+            stm32_read_seek_address(
+                drive,
+                seek_drive,
+                seek_cylinder,
+                seek_head,
+                seek_sector
+            );  
+            // Kodkommentar: Uppdatera aktuell position för vald drive.
+            cylinder[seek_drive] = seek_cylinder;
+            head[seek_drive]     = seek_head;
+            sector[seek_drive]   = seek_sector;            
+
           end
 
           default: begin
@@ -1777,7 +1837,7 @@ end
         end if (DSN == "143300") begin
           sw <= 16'o006400; 
         end if (DSN == "151302") begin
-          sw <= 16'o004000; 
+          sw <= 16'o000000; 
         end else begin
           sw <= 16'o000000; 
         end

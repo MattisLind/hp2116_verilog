@@ -582,7 +582,7 @@ always @* begin
         endcase
     end
     else begin
-      iob_in_internal = iob_in10 | iob_in11 | iob_in12;
+      iob_in_internal = iob_in10 | iob_in11 | iob_in12 | iob_in13;
     end
 end
 

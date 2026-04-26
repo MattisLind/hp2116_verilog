@@ -131,6 +131,8 @@ module hp13210a #(
   logic        stc_data_channel; 
   logic        stc_data_channel_delayed;
   logic        stc_data_channel_negedge;
+  logic        seek_record_command;
+  logic        status_check_command;
 
   localparam logic [3:0] STM32_REG_CSR                     = 4'h00;
   localparam logic [3:0] STM32_REG_7900_COMMAND_STATUS     = 4'h02;
@@ -169,7 +171,7 @@ module hp13210a #(
 
     iob_in = 16'h0000;
     if (dsel & ioi & ~hp7900_data_n_status) iob_in [15:0] = { 1'b0, first_status, overrun, 1'b0, drive_unsafe, data_protect, 1'b0, seek_check, 1'b0, not_ready, end_of_cylinder, address_error, flagged_cylinder, drive_busy, data_error, any_error};
-    if (dsel & ioi & ~hp7900_data_n_status) iob_in [15:0] = data_interface_input_buffer_register;
+    if (dsel & ioi & hp7900_data_n_status) iob_in [15:0] = data_interface_input_buffer_register;
 
 
     if (ioi & csel) iob_in [15:0] = {12'b000000000000, attention_input_register};
@@ -219,9 +221,13 @@ module hp13210a #(
 
     stm32_drq = 1'b0;
 
-    set_data_channel_flag_buffer = hp7900_data_n_status & stm32_write_7900_command_status_negedge | ~hp7900_data_n_status &  stm32_write_7900_data_negedge | stm32_read_7900_data_negedge;
+    set_data_channel_flag_buffer = ~hp7900_data_n_status & stm32_write_7900_command_status_negedge | hp7900_data_n_status &  stm32_write_7900_data_negedge | stm32_read_7900_data_negedge;
     stc_data_channel = stc & dsel;
     stc_data_channel_negedge = ~stc_data_channel & stc_data_channel_delayed;
+
+    seek_record_command = ( command_register == 4'h3) & ioo;
+    status_check_command = (command_register == 4'h0) & ioo;
+
   end
 
   //--------------------------------------------------------------------------
@@ -338,21 +344,21 @@ module hp13210a #(
         stm32_write_7900_attention_registered <= stm32_write_7900_attention;
         stm32_write_7900_attention_delayed <= stm32_write_7900_attention_registered;
         
-        if (crs) attention_input_register[0] <=1'b0;
-        else if (drv0_sel) attention_input_register[0] <=1'b1;
-        else if (stm32_write_7900_attention) attention_input_register[0] <= stm32_fsmc_ad[0];
+        if (crs | seek_record_command | status_check_command) attention_input_register[0] <=1'b0;
+        //else if (drv0_sel) attention_input_register[0] <=1'b1;
+        else if (stm32_write_7900_attention) attention_input_register[0] <= stm32_fsmc_ad[0] | attention_input_register[0];
 
-        if (crs) attention_input_register[1] <=1'b0;
-        else if (drv1_sel) attention_input_register[1] <=1'b1;
-        else if (stm32_write_7900_attention) attention_input_register[1] <= stm32_fsmc_ad[1];
+        if (crs | seek_record_command | status_check_command) attention_input_register[1] <=1'b0;
+        //else if (drv1_sel) attention_input_register[1] <=1'b1;
+        else if (stm32_write_7900_attention) attention_input_register[1] <= stm32_fsmc_ad[1] | attention_input_register[1];
 
-        if (crs) attention_input_register[2] <=1'b0;
-        else if (drv2_sel) attention_input_register[2] <=1'b1;
-        else if (stm32_write_7900_attention) attention_input_register[2] <= stm32_fsmc_ad[2];
+        if (crs | seek_record_command | status_check_command) attention_input_register[2] <=1'b0;
+        //else if (drv2_sel) attention_input_register[2] <=1'b1;
+        else if (stm32_write_7900_attention) attention_input_register[2] <= stm32_fsmc_ad[2] | attention_input_register[2];
 
-        if (crs) attention_input_register[3] <=1'b0;
-        else if (drv3_sel) attention_input_register[3] <=1'b1;
-        else if (stm32_write_7900_attention) attention_input_register[3] <= stm32_fsmc_ad[3];
+        if (crs | seek_record_command | status_check_command) attention_input_register[3] <=1'b0;
+        //else if (drv3_sel) attention_input_register[3] <=1'b1;
+        else if (stm32_write_7900_attention) attention_input_register[3] <= stm32_fsmc_ad[3] | attention_input_register[3];
 
 
 /*
