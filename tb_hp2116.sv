@@ -634,7 +634,7 @@ module tb_hp2116;
     forever begin
       uart_recv_byte(uart_tx, ch);
 
-      $display("UART TX byte: 0x%02h (%s) at time %0t",
+      $display("UART RX byte: 0x%02h (%s) at time %0t",
                ch,
                (ch >= 8'h20 && ch <= 8'h7e) ? {byte'(ch)} : ".",
                $time);
@@ -1485,7 +1485,7 @@ initial begin
         4_000ns,
         20_000ns
     );
-    if (DSN=="151302") begin
+    /*if (DSN=="151302") begin
       uart_expect_and_respond(
         uart_tx,
         uart_rx,
@@ -1532,7 +1532,7 @@ initial begin
       sw = 16'o000000; 
       #1;
       pulse_btn(run_btn);
-      #1;
+      #1;*/
       /*
       uart_expect_and_respond(
           uart_tx,
@@ -1549,8 +1549,8 @@ initial begin
           "NO\r",
           4_000ns,
           20_000_000ns
-      );*/
-    end
+      );
+    end*/
     $display("Finished scripted UART exchange at time %0t", $time);
 end
 
@@ -1777,7 +1777,7 @@ end
         end if (DSN == "143300") begin
           sw <= 16'o006400; 
         end if (DSN == "151302") begin
-          sw <= 16'o000004; 
+          sw <= 16'o004000; 
         end else begin
           sw <= 16'o000000; 
         end
@@ -1856,9 +1856,9 @@ end
         pulse_btn(run_btn);
         #1;        
       end else if (DSN == "151302") begin 
-        $display("Halting temporarily in 151301 P=%05o TR=%06o", $time, cpu.P, cpu.TR);
+        
         if (cpu.P == 15'o076762) begin //TIME 449412385000: CPU HALTED P=076762 IR=000053 TR=126741 A=077341 B=017074
-          $display("will restart..."); 
+          $display("TIME %0t: Halting temporarily in DSN=151301 P=%05o TR=%06o - will restart", $time, cpu.P, cpu.TR);
         end  
         else begin
           $display("Diag failed", $time);
