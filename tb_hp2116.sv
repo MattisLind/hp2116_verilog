@@ -141,6 +141,272 @@ module tb_hp2116;
   initial clk = 1'b0;
   always #5 clk = ~clk;
 
+
+// Kodkommentar: Diskgeometri.
+localparam int unsigned DISK_DRIVES      = 4;
+localparam int unsigned DISK_CYLINDERS   = 203;
+localparam int unsigned DISK_HEADS       = 4;
+localparam int unsigned DISK_SECTORS     = 24;
+localparam int unsigned DISK_SECTOR_SIZE = 256;
+
+localparam int WORDS_PER_SECTOR = 128;
+localparam int SECTORS_PER_TRACK = 24;
+localparam int HEADS_PER_CYLINDER = 4;
+
+logic [15:0] drivestatus [3:0];
+logic [7:0] cylinder [3:0];
+logic [7:0] current_cylinder [3:0];
+logic [4:0] sector [3:0];
+logic [1:0] head [3:0];
+
+// Kodkommentar: Totalt antal bytes per diskimage.
+localparam int unsigned DISK_IMAGE_BYTES =
+    DISK_CYLINDERS * DISK_HEADS * DISK_SECTORS * DISK_SECTOR_SIZE;
+
+// Kodkommentar: En byte-array per drive.
+byte unsigned disk_image [DISK_DRIVES][DISK_IMAGE_BYTES];
+
+// Kodkommentar: Filnamn för de fyra diskbilderna.
+string disk_filename [DISK_DRIVES];
+
+
+// Kodkommentar: Vänta tills CSR-bitten blir satt, men avbryt efter timeout.
+// Kodkommentar: Denna variant undviker fork/join_any så att Verilator accepterar den.
+task automatic stm32_wait_csr_bit_set_timeout(
+    input  int bit_index,
+    input  time timeout_time,
+    output logic got_word
+);
+    logic [15:0] csr_local;
+    time deadline;
+
+    begin
+        got_word  = 1'b0;
+        csr_local = 16'h0000;
+        deadline  = $time + timeout_time;
+
+        while (($time < deadline) && !got_word) begin
+            stm32_fsmc_read16(STM32_REG_CSR, csr_local);
+
+            if (csr_local[bit_index]) begin
+                got_word = 1'b1;
+            end
+            else begin
+                // Kodkommentar: Pollfördröjning, men gå inte förbi deadline.
+                if (($time + 200ns) < deadline)
+                    #(200ns);
+                else
+                    #(deadline - $time);
+            end
+        end
+    end
+endtask
+
+// Kodkommentar: Fyll resten av aktuell sektor med nollor från word_count till 127.
+task automatic disk_fill_rest_of_sector(
+    input int drive,
+    input int cylinder_no,
+    input int head_no,
+    input int sector_no,
+    input int start_word
+);
+    int unsigned off;
+    begin
+        for (int w = start_word; w < WORDS_PER_SECTOR; w++) begin
+            off = disk_byte_offset(
+                    cylinder_no[7:0],
+                    head_no[1:0],
+                    sector_no[4:0]
+                 ) + (w * 2);
+
+            // Kodkommentar: Fyll saknade ord med noll.
+            disk_image[drive][off + 0] = 8'h00;
+            disk_image[drive][off + 1] = 8'h00;
+        end
+    end
+endtask
+
+
+task automatic stm32_receive_write_cylinder(
+    input int drive,
+    input int cylinder_no,
+    input int start_head,
+    input int start_sector
+);
+    logic [15:0] indata;
+    logic got_word;
+    int word_count;
+    int sector_count;
+    int head_count;
+    int unsigned off;
+
+    begin
+        word_count   = 0;
+        sector_count = start_sector;
+        head_count   = start_head;
+
+        while (1) begin
+            // Kodkommentar: Vänta högst 6.4 us på nästa ord.
+            stm32_wait_csr_bit_set_timeout(6, 6400ns, got_word);
+
+            if (!got_word) begin
+                $display("[%0t] STM32 WRITE: timeout at H=%0d S=%0d W=%0d",
+                         $time, head_count, sector_count, word_count);
+
+                // Kodkommentar: Timeout mitt i sektor betyder att resten av sektorn fylls.
+                if (word_count != 0) begin
+                    disk_fill_rest_of_sector(
+                        drive,
+                        cylinder_no,
+                        head_count,
+                        sector_count,
+                        word_count
+                    );
+                end
+
+                break;
+            end
+
+            // Kodkommentar: Läs ett 16-bitars ord från FPGA.
+            stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
+
+            // Kodkommentar: Beräkna plats i diskimage.
+            off = disk_byte_offset(
+                    cylinder_no[7:0],
+                    head_count[1:0],
+                    sector_count[4:0]
+                 ) + (word_count * 2);
+
+            // Kodkommentar: Skriv ordet till image. Byt byteordning här om din image kräver det.
+            disk_image[drive][off + 0] = indata[15:8];
+            disk_image[drive][off + 1] = indata[7:0];
+
+            word_count++;
+
+            // Kodkommentar: Nästa sektor efter 128 ord.
+            if (word_count == WORDS_PER_SECTOR) begin
+                word_count = 0;
+                sector_count++;
+
+                if (sector_count == SECTORS_PER_TRACK) begin
+                    sector_count = 0;
+                    head_count++;
+
+                    if (head_count == HEADS_PER_CYLINDER) begin
+                        $display("[%0t] STM32 WRITE: end of cylinder reached", $time);
+                        break;
+                    end
+                end
+            end
+        end
+    end
+endtask
+
+// Kodkommentar: Läs en diskimage-fil till minnet för en drive.
+// Kodkommentar: Läs en diskimage-fil till minnet för en drive.
+task automatic disk_load_image(input int drive);
+    int fd;
+    int c;
+    int i;
+
+    begin
+        fd = $fopen(disk_filename[drive], "rb");
+
+        // Kodkommentar: Initiera alltid image till noll först.
+        for (i = 0; i < DISK_IMAGE_BYTES; i++)
+            disk_image[drive][i] = 8'h00;
+
+        if (fd == 0) begin
+            $display("DISK%0d: could not open %s, using blank image",
+                     drive, disk_filename[drive]);
+        end
+        else begin
+            i = 0;
+
+            // Kodkommentar: Läs filen byte-för-byte eftersom Verilator inte accepterar
+            // Kodkommentar: $fread direkt till disk_image[drive].
+            while (i < DISK_IMAGE_BYTES) begin
+                c = $fgetc(fd);
+
+                if (c < 0)
+                    break;
+
+                disk_image[drive][i] = c[7:0];
+                i++;
+            end
+
+            $fclose(fd);
+
+            $display("DISK%0d: loaded %0d bytes from %s",
+                     drive, i, disk_filename[drive]);
+        end
+    end
+endtask
+
+
+// Kodkommentar: Skriv tillbaka en drive-image från minnet till fil.
+task automatic disk_save_image(input int drive);
+    int fd;
+
+    begin
+        fd = $fopen(disk_filename[drive], "wb");
+
+        if (fd == 0) begin
+            $fatal(1, "DISK%0d: could not open %s for writing",
+                   drive, disk_filename[drive]);
+        end
+
+        // Kodkommentar: Skriv tillbaka hela diskens byte-array.
+        for (int i = 0; i < DISK_IMAGE_BYTES; i++)
+            $fwrite(fd, "%c", disk_image[drive][i]);
+
+        $fclose(fd);
+
+        $display("DISK%0d: saved %0d bytes to %s",
+                 drive, DISK_IMAGE_BYTES, disk_filename[drive]);
+    end
+endtask
+
+initial begin : disk_image_init
+    // Kodkommentar: Standardnamn. Kan ersättas med plusargs.
+    disk_filename[0] = "drive0.img";
+    disk_filename[1] = "drive1.img";
+    disk_filename[2] = "drive2.img";
+    disk_filename[3] = "drive3.img";
+
+    // Kodkommentar: Tillåt override från kommandoraden.
+    void'($value$plusargs("DISK0=%s", disk_filename[0]));
+    void'($value$plusargs("DISK1=%s", disk_filename[1]));
+    void'($value$plusargs("DISK2=%s", disk_filename[2]));
+    void'($value$plusargs("DISK3=%s", disk_filename[3]));
+
+    // Kodkommentar: Läs in alla diskbilder innan simuleringen börjar använda dem.
+    for (int d = 0; d < DISK_DRIVES; d++)
+        disk_load_image(d);
+end
+
+final begin
+    // Kodkommentar: Skriv tillbaka alla diskbilder när simuleringen avslutas.
+    for (int d = 0; d < DISK_DRIVES; d++)
+        disk_save_image(d);
+end
+
+
+function automatic int unsigned disk_byte_offset(
+    input logic [7:0] c,
+    input logic [1:0] h,
+    input logic [4:0] s
+);
+    int unsigned lba;
+
+    begin
+        // Kodkommentar: Använd din befintliga CHS->LBA-funktion.
+        lba = chs_to_lba(c, h, s);
+
+        // Kodkommentar: Gör om sektoradress till byte-offset.
+        disk_byte_offset = lba * DISK_SECTOR_SIZE;
+    end
+endfunction
   // --------------------------------------------------------------------------
   // STM32/FSMC register-access framework
   // --------------------------------------------------------------------------
@@ -322,26 +588,26 @@ module tb_hp2116;
   endtask
 
   function automatic logic [31:0] chs_to_lba(
-    input logic [7:0] cyl,
-    input logic [1:0] head,
-    input logic [4:0] sector
+    input logic [7:0] c,
+    input logic [1:0] h,
+    input logic [4:0] s
   );
     localparam int unsigned HEADS_PER_CYL   = 4;
     localparam int unsigned SECTORS_PER_TRK = 24;
 
-    logic [31:0] cyl32;
-    logic [31:0] head32;
-    logic [31:0] sector32;
+    logic [31:0] c32;
+    logic [31:0] h32;
+    logic [31:0] s32;
 
     begin
       // Kodkommentar: Gör alla fält till 32-bitars unsigned-värden.
-      cyl32    = 32'(unsigned'(cyl));
-      head32   = 32'(unsigned'(head));
-      sector32 = 32'(unsigned'(sector));
+      c32    = 32'(unsigned'(c));
+      h32   = 32'(unsigned'(h));
+      s32 = 32'(unsigned'(s));
 
       // Kodkommentar: Beräkna linjär sektoradress, alltså LBA.
-      chs_to_lba = ((cyl32 * HEADS_PER_CYL) + head32) * SECTORS_PER_TRK
-                  + (sector32);
+      chs_to_lba = ((c32 * HEADS_PER_CYL) + h32) * SECTORS_PER_TRK
+                  + (s32);
     end
   endfunction
 
@@ -366,8 +632,7 @@ module tb_hp2116;
       input logic [1:0] seek_drive,
       input logic [7:0] seek_cylinder,
       input logic [1:0] seek_head,
-      input logic [4:0] seek_sector, 
-      ref logic [15:0] drivestatus [3:0]
+      input logic [4:0] seek_sector
     );
       begin
         // Kodkommentar: Simulera mekanisk seek-tid utan att blockera STM32-huvudloopen.
@@ -381,12 +646,13 @@ module tb_hp2116;
 
         #(4ms);
         drivestatus[seek_drive] = 16'b0000000000000000;  // Not busy any longer.
+        current_cylinder[seek_drive] = seek_cylinder;
         // Kodkommentar: När seek är klar, signalera attention för rätt drive.
         stm32_fsmc_write16(
           STM32_REG_7900_ATTENTION,
           {12'h000, decode2to4(seek_drive)}
         );
-
+        
         $display("[%0t] STM32: Drive %0d seek complete",
                 $time, seek_drive);
       end
@@ -447,10 +713,6 @@ module tb_hp2116;
 
     logic [15:0] indata;
     logic [3:0] command;
-    logic [15:0] drivestatus [3:0];
-    logic [7:0] cylinder [3:0];
-    logic [4:0] sector [3:0];
-    logic [1:0] head [3:0];
     logic  [1:0] drive;
     logic [15:0] csr_value;
     logic [15:0] csr;
@@ -475,11 +737,24 @@ module tb_hp2116;
             csr_value[1] = 1'b0;
             stm32_fsmc_write16(STM32_REG_CSR, csr_value);
             stm32_fsmc_write16(STM32_REG_7900_COMMAND_STATUS, drivestatus[drive]);
-            drivestatus[drive][14] = 0; // reset initial status   
+            drivestatus[drive][14] = 1'b0; // reset initial status   
           end
 
           4'h1: begin
             $display("[%0t] STM32: Got Write Data command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+            if (current_cylinder[drive] != cylinder[drive]) begin
+              drivestatus[drive] =  16'b0000000000010000;  
+            end
+            else begin
+            // Kodkommentar: Bredda värdena till unsigned innan anropet.
+            stm32_receive_write_cylinder(
+                {30'b0, drive},
+                {24'b0, cylinder[drive]},
+                {30'b0, head[drive]},
+                {27'b0, sector[drive]}
+            );
+            end
+            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
           end
 
           4'h2: begin
@@ -522,13 +797,20 @@ module tb_hp2116;
 
                 // Kodkommentar: Starta seek i bakgrunden.
                 fork
+                  begin
+                    // Kodkommentar: Kopiera värden till fork-lokala variabler.
+                    automatic logic [1:0] worker_drive    = seek_drive;
+                    automatic logic [7:0] worker_cylinder = seek_cylinder;
+                    automatic logic [1:0] worker_head     = seek_head;
+                    automatic logic [4:0] worker_sector   = seek_sector;
+
                     stm32_seek_worker(
-                        seek_drive,
-                        seek_cylinder,
-                        seek_head,
-                        seek_sector,
-                        drivestatus
+                        worker_drive,
+                        worker_cylinder,
+                        worker_head,
+                        worker_sector
                     );
+                  end
                 join_none
             end
             $display("[%0t] STM32: End Seek Record command", $time);
@@ -1844,10 +2126,11 @@ end
         #1
         pulse_btn(run_btn);
         #1;
-      end else if ((cpu.TR == 16'o102024) && (DSN=="104003")) begin 
+      end else if ((cpu.TR == 16'o102024) && (DSN=="104003" || DSN=="143300")) begin 
         pulse_btn(preset_btn);
         #1
         pulse_btn(run_btn);
+        $display("TIME %0t: PRESET and then RUN", $time);
       end else if ((cpu.TR == 16'o102030) && (DSN=="104003")) begin 
         #1
         tty_start_capture();
