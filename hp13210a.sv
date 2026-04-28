@@ -292,7 +292,7 @@ module hp13210a #(
         if (stm32_read_csr_negedge) stm32_irq_ff <= 1'b0;
         else if (~command_channel_control_ff_delayed & command_channel_control_ff) stm32_irq_ff <= 1'b1;
 
-        if (stm32_read_7900_data_negedge) stm32_data_channel_irq_ff <= 1'b0;
+        if (stm32_read_7900_data_negedge | stm32_write_7900_data_negedge) stm32_data_channel_irq_ff <= 1'b0;
         else if (stc_data_channel_negedge) stm32_data_channel_irq_ff <= 1'b1;
 
         if (stm32_write_csr) begin

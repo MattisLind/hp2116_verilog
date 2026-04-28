@@ -1198,7 +1198,7 @@ endfunction
             if (tstate == T6) begin
               mem_we <= 1'b0;
             end               
-            if (tstate == T7) begin
+            if (tstate == T6) begin
               if (dma_1_cycle_request_ff & ((dma_1_char_mode_ff & ~dma_1_cycle_div_ff) | ~dma_1_char_mode_ff)) begin
                 dma_1_address_word[14:0] <=  dma_1_address_word[14:0] + 15'o00001; 
               end 

@@ -193,10 +193,10 @@ task automatic stm32_wait_csr_bit_set_timeout(
             end
             else begin
                 // Kodkommentar: Pollfördröjning, men gå inte förbi deadline.
-                if (($time + 200ns) < deadline)
-                    #(200ns);
-                else
-                    #(deadline - $time);
+              if (($time + 200ns) < deadline)
+                #(200ns);
+              else if ($time < deadline)
+                #(deadline - $time);
             end
         end
     end
@@ -227,6 +227,28 @@ task automatic disk_fill_rest_of_sector(
 endtask
 
 
+function automatic bit calculate_rar (ref int word_count, ref int sector_count, ref int head_count, input string text);
+
+    word_count++;
+    if (word_count == WORDS_PER_SECTOR) begin
+    $display("[%0t] STM32 %s: wrote until end of sector %d - stepping to next sector", $time, text, sector_count);
+    word_count = 0;
+    sector_count++;
+
+      if (sector_count == SECTORS_PER_TRACK) begin
+          $display("[%0t] STM32 %s: wrote until end of track at head %d - stepping to next sector", $time, text, head_count);
+          sector_count = 0;
+          head_count++;
+
+          if (head_count == HEADS_PER_CYLINDER) begin
+              $display("[%0t] STM32 %s: end of cylinder reached", $time, text);
+              return 1;
+          end
+      end
+    end  
+    return 0; 
+endfunction
+
 task automatic stm32_receive_write_cylinder(
     input int drive,
     input int cylinder_no,
@@ -244,7 +266,7 @@ task automatic stm32_receive_write_cylinder(
         word_count   = 0;
         sector_count = start_sector;
         head_count   = start_head;
-
+        $display("[%0t] STM32 WRITE: cyl=%d head=%d sector=%d", $time, cylinder_no, start_head, start_sector);
         while (1) begin
             // Kodkommentar: Vänta högst 6.4 us på nästa ord.
             stm32_wait_csr_bit_set_timeout(6, 6400ns, got_word);
@@ -280,27 +302,61 @@ task automatic stm32_receive_write_cylinder(
             // Kodkommentar: Skriv ordet till image. Byt byteordning här om din image kräver det.
             disk_image[drive][off + 0] = indata[15:8];
             disk_image[drive][off + 1] = indata[7:0];
+            
+            
+            if (calculate_rar (word_count, sector_count, head_count, "WRITE")) break;
+        end
+    end
+endtask
 
-            word_count++;
+task automatic stm32_receive_read_cylinder(
+    input int drive,
+    input int cylinder_no,
+    input int start_head,
+    input int start_sector
+);
+    logic [15:0] data;
+    logic got_word;
+    int word_count;
+    int sector_count;
+    int head_count;
+    int unsigned off;
 
-            // Kodkommentar: Nästa sektor efter 128 ord.
-            if (word_count == WORDS_PER_SECTOR) begin
-                word_count = 0;
-                sector_count++;
+    begin
+        word_count   = 0;
+        sector_count = start_sector;
+        head_count   = start_head;
+        $display("[%0t] STM32 READ: cyl=%d head=%d sector=%d", $time, cylinder_no, start_head, start_sector);
+        while (1) begin
 
-                if (sector_count == SECTORS_PER_TRACK) begin
-                    sector_count = 0;
-                    head_count++;
+            // Kodkommentar: Beräkna plats i diskimage.
+            off = disk_byte_offset(
+                    cylinder_no[7:0],
+                    head_count[1:0],
+                    sector_count[4:0]
+                 ) + (word_count * 2);
 
-                    if (head_count == HEADS_PER_CYLINDER) begin
-                        $display("[%0t] STM32 WRITE: end of cylinder reached", $time);
-                        break;
-                    end
-                end
+            // Kodkommentar: Skriv ordet till image. Byt byteordning här om din image kräver det.
+            data[15:8] = disk_image[drive][off + 0];
+            data[7:0] =  disk_image[drive][off + 1];
+
+            stm32_fsmc_write16(STM32_REG_7900_DATA, data);
+
+            if (calculate_rar (word_count, sector_count, head_count, "READ")) break;         
+            // Kodkommentar: Vänta högst 6.4 us på nästa ord.
+            stm32_wait_csr_bit_set_timeout(6, 6400ns, got_word);
+
+            if (!got_word) begin
+                $display("[%0t] STM32 READ: timeout at H=%0d S=%0d W=%0d",
+                         $time, head_count, sector_count, word_count);
+
+
+                break;
             end
         end
     end
 endtask
+
 
 // Kodkommentar: Läs en diskimage-fil till minnet för en drive.
 // Kodkommentar: Läs en diskimage-fil till minnet för en drive.
@@ -448,8 +504,8 @@ endfunction
     stm32_fsmc_noe      = 1'b1;
     stm32_fsmc_bus_busy = 1'b0;
 
-    if (!$value$plusargs("FSMC_TRACE=%b", stm32_fsmc_trace))
-      stm32_fsmc_trace = 1'b0;
+    //if (!$value$plusargs("FSMC_TRACE=%b", stm32_fsmc_trace))
+    //  stm32_fsmc_trace = 1'b0;
   end
 
   // Kodkommentar: Vänta tills ingen annan testbänksprocess använder FSMC-bussen.
@@ -513,7 +569,7 @@ endfunction
       stm32_fsmc_ad_out = 16'h0000;
 
       if (stm32_fsmc_trace)
-        $display("FSMC WRITE addr=%04h data=%04h at time %0t", addr, data, $time);
+        $display("FSMC WRITE addr=%04h data=%06o at time %0t", addr, data, $time);
 
       stm32_fsmc_unlock_bus();
     end
@@ -544,7 +600,7 @@ endfunction
       stm32_fsmc_ne1 = 1'b1;
 
       if (stm32_fsmc_trace)
-        $display("FSMC READ  addr=%04h data=%04h at time %0t", addr, data, $time);
+        $display("FSMC READ  addr=%04h data=%06o at time %0t", addr, data, $time);
 
       stm32_fsmc_unlock_bus();
     end
@@ -716,6 +772,7 @@ endfunction
     logic  [1:0] drive;
     logic [15:0] csr_value;
     logic [15:0] csr;
+    logic [5:0] num_sectors;
     csr = 16'h0;
     drivestatus = '{default: 16'b0100000000000000};
     csr_value = 16'b0000000100000000;
@@ -741,24 +798,44 @@ endfunction
           end
 
           4'h1: begin
+           
             $display("[%0t] STM32: Got Write Data command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+       
             if (current_cylinder[drive] != cylinder[drive]) begin
               drivestatus[drive] =  16'b0000000000010000;  
             end
             else begin
             // Kodkommentar: Bredda värdena till unsigned innan anropet.
-            stm32_receive_write_cylinder(
-                {30'b0, drive},
-                {24'b0, cylinder[drive]},
-                {30'b0, head[drive]},
-                {27'b0, sector[drive]}
-            );
+              csr_value[1] = 1'b1;
+              stm32_fsmc_write16(STM32_REG_CSR, csr_value);                  
+              stm32_receive_write_cylinder(
+                  {30'b0, drive},
+                  {24'b0, cylinder[drive]},
+                  {30'b0, head[drive]},
+                  {27'b0, sector[drive]}
+              );
             end
             stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
           end
 
           4'h2: begin
             $display("[%0t] STM32: Got Read Data command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+            if (current_cylinder[drive] != cylinder[drive]) begin
+              drivestatus[drive] =  16'b0000000000010000;  
+            end
+            else begin
+            // Kodkommentar: Bredda värdena till unsigned innan anropet.
+              csr_value[1] = 1'b1;
+              stm32_fsmc_write16(STM32_REG_CSR, csr_value);             
+              stm32_receive_read_cylinder(
+                  {30'b0, drive},
+                  {24'b0, cylinder[drive]},
+                  {30'b0, head[drive]},
+                  {27'b0, sector[drive]}
+              );
+            end
+            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
+
           end
 
           4'h3: begin
@@ -818,14 +895,20 @@ endfunction
 
           4'h5: begin
             $display("[%0t] STM32: Got Refine Sector command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
           end
 
           4'h6: begin
-            $display("[%0t] STM32: Got Check Data command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+            stm32_wait_csr_bit_set(6);
+            stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
+            num_sectors = indata[5:0];
+            $display("[%0t] STM32: Got Check Data command on drive %d num sectors= %d returning status = %06o", $time,drive, num_sectors, drivestatus[drive]);
+            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
           end
 
           4'h9: begin
             $display("[%0t] STM32: Got Initialize Data command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
           end          
 
           4'hb: begin
@@ -833,7 +916,7 @@ endfunction
             logic [7:0] seek_cylinder;
             logic [1:0] seek_head;
             logic [4:0] seek_sector;            
-            $display("[%0t] STM32: Got Address Record command on drive %d returning status = %06o", $time,drive, drivestatus[drive]);
+            
 
 
             // Kodkommentar: Läs adressparametrar från kommandot.
@@ -848,7 +931,8 @@ endfunction
             cylinder[seek_drive] = seek_cylinder;
             head[seek_drive]     = seek_head;
             sector[seek_drive]   = seek_sector;            
-
+            $display("[%0t] STM32: Got Address Record command on drive %d c=%d h=%d s=%d, returning status = %06o", $time,drive, seek_cylinder, seek_head, seek_sector, drivestatus[drive]);
+            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
           end
 
           default: begin
