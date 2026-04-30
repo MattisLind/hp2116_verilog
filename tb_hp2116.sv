@@ -281,19 +281,19 @@ endtask
 
 
 function automatic void calculate_rar (input string text);
-    $display("[%0t] STM32: calculate_rar  C=%d, H=%d, S=%d WC=%d", $time, rar_cylinder, rar_head, rar_sector, word_count);
+    //$display("[%0t] STM32: calculate_rar  C=%d, H=%d, S=%d WC=%d", $time, rar_cylinder, rar_head, rar_sector, word_count);
     if (word_count == 127) begin
-      $display("[%0t] STM32 %s: calculate_rar %d - stepping to next sector", $time, text, rar_sector);
+      //$display("[%0t] STM32 %s: calculate_rar %d - stepping to next sector", $time, text, rar_sector);
       word_count = 0;
       rar_sector++;
 
       if (rar_sector == SECTORS_PER_TRACK) begin
-          $display("[%0t] STM32 %s: calculate_rar %d - stepping to next head", $time, text, rar_head);
+          //$display("[%0t] STM32 %s: calculate_rar %d - stepping to next head", $time, text, rar_head);
           rar_sector = 0;
           rar_head++;
 
           if ((rar_head == 0) || (rar_head == 2)) begin
-              $display("[%0t] STM32 %s: end of cylinder reached", $time, text);
+              //$display("[%0t] STM32 %s: end of cylinder reached", $time, text);
               eoc_flag = 1'b1;
           end
       end
@@ -311,13 +311,13 @@ task automatic stm32_write_cylinder();
     begin
         word_count   = 0;
         eoc_flag = 1'b0;
-        $display("[%0t] STM32 WRITE: drive=%d cyl=%d head=%d sector=%d", $time, selected_drive, rar_cylinder, rar_head, rar_sector);
+        //$display("[%0t] STM32 WRITE: drive=%d cyl=%d head=%d sector=%d", $time, selected_drive, rar_cylinder, rar_head, rar_sector);
         while (1) begin
             // Kodkommentar: Vänta högst 6.4 us på nästa ord.
             stm32_wait_csr_bit_set_timeout(6, 1200ns, got_word);
 
             if (!got_word) begin
-                $display("[%0t] STM32 WRITE: timeout at C=%d H=%0d S=%0d W=%0d", $time, rar_cylinder, rar_head, rar_sector, word_count);
+                //$display("[%0t] STM32 WRITE: timeout at C=%d H=%0d S=%0d W=%0d", $time, rar_cylinder, rar_head, rar_sector, word_count);
                 // A timeout occured which usually means that the word count in DMA has wrapped.
                 // Potentially it is a overrun condition and then we need to check if there is a STC pulse on the data channel later
                 if (word_count != 0) begin
@@ -364,7 +364,7 @@ task automatic stm32_read_cylinder(
     begin
         word_count   = 0;
         eoc_flag = 1'b0;
-        $display("[%0t] STM32 READ: drive=%d cyl=%d head=%d sector=%d", $time, selected_drive, rar_cylinder, rar_head, rar_sector);
+        //$display("[%0t] STM32 READ: drive=%d cyl=%d head=%d sector=%d", $time, selected_drive, rar_cylinder, rar_head, rar_sector);
         while (1) begin
 
             // Kodkommentar: Beräkna plats i diskimage.
@@ -384,7 +384,7 @@ task automatic stm32_read_cylinder(
             stm32_wait_csr_bit_set_timeout(6, 600ns, got_word);
 
             if (!got_word) begin
-                $display("[%0t] STM32 READ: timeout at C=%d H=%d S=%d W=%0d",$time, rar_cylinder, rar_head, rar_sector, word_count);
+                //$display("[%0t] STM32 READ: timeout at C=%d H=%d S=%d W=%0d",$time, rar_cylinder, rar_head, rar_sector, word_count);
                 #(3000ns)
                 stm32_wait_csr_bit_set_timeout(6, 1200ns, got_word);
                 if (got_word) begin
@@ -413,8 +413,7 @@ task automatic disk_load_image(input int drive);
             disk_image[drive][i] = 8'h00;
 
         if (fd == 0) begin
-            $display("DISK%0d: could not open %s, using blank image",
-                     drive, disk_filename[drive]);
+            $display("DISK%0d: could not open %s, using blank image",drive, disk_filename[drive]);
         end
         else begin
             i = 0;
@@ -433,8 +432,7 @@ task automatic disk_load_image(input int drive);
 
             $fclose(fd);
 
-            $display("DISK%0d: loaded %0d bytes from %s",
-                     drive, i, disk_filename[drive]);
+            $display("DISK%0d: loaded %0d bytes from %s",drive, i, disk_filename[drive]);
         end
     end
 endtask
@@ -609,7 +607,7 @@ endfunction
       stm32_fsmc_ad_out = 16'h0000;
 
       if (stm32_fsmc_trace)
-        $display("FSMC WRITE addr=%04h data=%06o at time %0t", addr, data, $time);
+        //$display("FSMC WRITE addr=%04h data=%06o at time %0t", addr, data, $time);
 
       stm32_fsmc_unlock_bus();
     end
@@ -640,7 +638,7 @@ endfunction
       stm32_fsmc_ne1 = 1'b1;
 
       if (stm32_fsmc_trace)
-        $display("FSMC READ  addr=%04h data=%06o at time %0t", addr, data, $time);
+        //$display("FSMC READ  addr=%04h data=%06o at time %0t", addr, data, $time);
 
       stm32_fsmc_unlock_bus();
     end
@@ -676,7 +674,7 @@ endfunction
     begin
       logic [15:0] data;
       stm32_fsmc_read16(STM32_REG_CSR, data);
-      $display("STM32 MODEL: IRQ observed, at time %0t", $time);
+      //$display("STM32 MODEL: IRQ observed, at time %0t", $time);
 
       // Kodkommentar: Här kan du senare kvittera IRQ, t.ex. genom write-one-to-clear:
       // stm32_fsmc_write16(STM32_REG_IRQ_STATUS, irq_status);
@@ -710,7 +708,7 @@ endfunction
   task automatic stm32_handle_drq();
     begin
 
-      $display("STM32 MODEL: DRQ observed at time %0t", $time);
+      //$display("STM32 MODEL: DRQ observed at time %0t", $time);
 
       // Kodkommentar: Här kan du senare streama data via STM32_REG_DATA.
       // Exempel read path från FPGA:  stm32_fsmc_read16(STM32_REG_DATA, word);
@@ -732,14 +730,13 @@ endfunction
       begin
         // Set the drive as busy before starting seek
         drive_busy[selected_drive] = 1'b1;
-        $display("[%0t] STM32: Drive %0d seek started C=%0d H=%0d S=%0d LBA=%0d",$time,seek_drive, seek_cylinder, seek_head, seek_sector,
-                chs_to_lba(seek_cylinder, seek_head, seek_sector));
+        //$display("[%0t] STM32: Drive %0d seek started C=%0d H=%0d S=%0d LBA=%0d",$time,seek_drive, seek_cylinder, seek_head, seek_sector,chs_to_lba(seek_cylinder, seek_head, seek_sector));
         
+        current_cylinder[selected_drive] = seek_cylinder;
         #(4ms);
         // seek is done
         drive_busy[selected_drive] = 1'b0;
-        // Store the cylinder the drive is actully positioned over.
-        current_cylinder[selected_drive] = seek_cylinder;
+
         // Signal attention for the drive that was done doing seek
         stm32_fsmc_write16(STM32_REG_7900_ATTENTION, {12'h000, decode2to4(selected_drive)});
         
@@ -828,11 +825,11 @@ endfunction
         selected_drive = indata[1:0];
         protected_cylinder_indicator = indata[9];
         defective_cylinder_indicator = indata[8];        
-        $display("[%0t] STM32: Got command %04o drive = %1d protected= %1d defective=%1d", $time, command, selected_drive, protected_cylinder_indicator, defective_cylinder_indicator);
+        //$display("[%0t] STM32: Got command %04o drive = %1d protected= %1d defective=%1d", $time, command, selected_drive, protected_cylinder_indicator, defective_cylinder_indicator);
         // Kodkommentar: Välj åtgärd beroende på kommando-koden.
         case (command)
           4'h0: begin
-            $display("[%0t] STM32: Got Status Check command on drive %d", $time,selected_drive);
+            //$display("[%0t] STM32: Got Status Check command on drive %d", $time,selected_drive);
             // enable status output 
             csr_value[1] = 1'b0;
             stm32_fsmc_write16(STM32_REG_CSR, csr_value);
@@ -846,7 +843,7 @@ endfunction
 
           4'h1: begin
            
-            $display("[%0t] STM32: Got Write Data command on drive %d", $time,selected_drive);
+            //$display("[%0t] STM32: Got Write Data command on drive %d", $time,selected_drive);
        
             if (current_cylinder[selected_drive] != rar_cylinder) begin
               address_error = 1'b1;  // Address error
@@ -872,9 +869,9 @@ endfunction
           end
 
           4'h2: begin
-            $display("[%0t] STM32: Got Read Data command on drive %d", $time,selected_drive);
+            //$display("[%0t] STM32: Got Read Data command on drive %d", $time,selected_drive);
             if (current_cylinder[selected_drive] != rar_cylinder) begin
-              $display("[%0t] STM32: address error on read", $time);
+              //$display("[%0t] STM32: address error on read", $time);
               current_cylinder[selected_drive] = 8'o000;
               address_error = 1'b1;  // Address error
             end
@@ -884,20 +881,20 @@ endfunction
             stm32_fsmc_write16(STM32_REG_CSR, csr_value);    
             // Read cylinder from RAR         
             stm32_read_cylinder();
-            
+            drive_busy[selected_drive] = 1'b0;
             stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
 
           end
 
           4'h3: begin
 
-            $display("[%0t] STM32: Got Seek Record command on drive %d", $time,selected_drive);
+            //$display("[%0t] STM32: Got Seek Record command on drive %d", $time,selected_drive);
             // Get two words over the data channel and store it into RAR
             stm32_get_seek_address();
-            $display("[%0t] STM32: Retrieved cylinder = %d head = %d and sector =%d", $time, rar_cylinder, rar_head, rar_sector);
+            //$display("[%0t] STM32: Retrieved cylinder = %d head = %d and sector =%d", $time, rar_cylinder, rar_head, rar_sector);
 
             if (drive_busy[selected_drive]) begin
-              $display("[%0t] STM32: Got Seek Record command - already busy", $time);
+              //$display("[%0t] STM32: Got Seek Record command - already busy", $time);
               seek_check[selected_drive] = 1'b1; 
               drive_busy[selected_drive] = 1'b0; // apparently it shall return not busy in this case. 
               stm32_fsmc_write16(STM32_REG_7900_ATTENTION,{12'h000, decode2to4(selected_drive)}); 
@@ -905,7 +902,7 @@ endfunction
                 // seek check
                 seek_check[selected_drive] = 1'b1;
                 drive_busy[selected_drive] = 1'b0;
-                $display("[%0t] STM32: Got Seek Record command - invalid address", $time);
+                //$display("[%0t] STM32: Got Seek Record command - invalid address", $time);
                 stm32_fsmc_write16(STM32_REG_7900_ATTENTION,{12'h000, decode2to4(selected_drive)});
             end
             else begin // do seek
@@ -925,11 +922,11 @@ endfunction
                   end
                 join_none
             end
-            $display("[%0t] STM32: End Seek Record command", $time);
+            //$display("[%0t] STM32: End Seek Record command", $time);
           end
 
           4'h5: begin
-            $display("[%0t] STM32: Got Refine Sector command on drive %d", $time,selected_drive);
+            //$display("[%0t] STM32: Got Refine Sector command on drive %d", $time,selected_drive);
             stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
           end
 
@@ -941,7 +938,7 @@ endfunction
             stm32_wait_csr_bit_set(6);
             stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
             num_sectors = indata[5:0];
-            $display("[%0t] STM32: Got Check Data command on drive %d num sectors= %d", $time,selected_drive, num_sectors);            
+            //$display("[%0t] STM32: Got Check Data command on drive %d num sectors= %d", $time,selected_drive, num_sectors);            
             for (i = 0; i < 32'(unsigned'(num_sectors)); i++) begin
               if (eoc_flag) begin
                 end_of_cylinder[selected_drive] = 1'b1;
@@ -952,7 +949,7 @@ endfunction
                 if (got_word) begin
                   stm32_fsmc_write16(STM32_REG_7900_DATA, 16'o000000);                
                   stm32_wait_csr_bit_set_timeout(6, 5900ns, got_word);
-                  $display("[%0t] STM32: Got Check Data got_word=%d", $time, got_word);
+                  //$display("[%0t] STM32: Got Check Data got_word=%d", $time, got_word);
                 end
               end
 
@@ -962,7 +959,7 @@ endfunction
           end
 
           4'h9: begin
-            $display("[%0t] STM32: Got Initialize Data command on drive %d", $time,selected_drive);
+            //$display("[%0t] STM32: Got Initialize Data command on drive %d", $time,selected_drive);
             if (current_cylinder[selected_drive] != rar_cylinder) begin
               address_error = 1'b1;  // Address error
               current_cylinder[selected_drive] = 8'o000;            // recalibrate if address error
@@ -987,13 +984,13 @@ endfunction
 
           4'hb: begin
             stm32_get_seek_address();      
-            $display("[%0t] STM32: Got Address Record command on drive %d c=%d h=%d s=%d", $time,selected_drive, rar_cylinder, rar_head, rar_sector);
+            //$display("[%0t] STM32: Got Address Record command on drive %d c=%d h=%d s=%d", $time,selected_drive, rar_cylinder, rar_head, rar_sector);
             stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
           end
 
           default: begin
             // Kodkommentar: Okänt eller ännu ej implementerat kommando.
-            $display("[%0t] STM32: Unknown command %h, raw word=%h", $time, command, indata);
+            //$display("[%0t] STM32: Unknown command %h, raw word=%h", $time, command, indata);
           end
         endcase
 
