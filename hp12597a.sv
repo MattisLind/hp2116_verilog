@@ -55,8 +55,8 @@ module hp12597a #(
   input  logic         sfsb_or_bioi_n,
   input  logic [7:0]   datain,
   output logic [7:0]   dataout,
-  input  logic         feedhole,
-  output logic         read,
+  input  logic         flag,
+  output logic         devicecommand,
   input  logic         jumper_w4, // jumper installed = 1 jumper removed = 0
   input  logic         jumper_w9
 );
@@ -120,11 +120,10 @@ module hp12597a #(
     prl  = prh & ~(flag_ff & ien & control_ff);
     iob_in = 16'h0000;
     if (do_ioi) iob_in [7:0] = datainreg;
-
+    dataout = dataoutreg;
+    devicecommand = command_ff;
   end
 
-    assign dataout = dataoutreg;
-    assign read = command_ff;
 
   //--------------------------------------------------------------------------
   // Main sequential logic
@@ -143,7 +142,7 @@ module hp12597a #(
         //--------------------------------------------------------------------
         // flag buffer flip/flop
         if (do_clf |  (iak & irq_ff)) flag_buffer_ff <= 1'b0;
-        else if (do_stf | (feedhole & ~flag_ff)) flag_buffer_ff <= 1'b1;
+        else if (do_stf | (flag & ~flag_ff)) flag_buffer_ff <= 1'b1;
 
         // flag flip/flop
         if (flag_buffer_ff & enf) flag_ff <= 1'b1;
@@ -156,12 +155,12 @@ module hp12597a #(
         if (do_clc | crs) control_ff <= 1'b0;
         else if (do_stc) control_ff <= 1'b1;
 
-        if (do_clc | feedhole) command_ff <= 1'b0;
+        if (do_clc | flag) command_ff <= 1'b0;
         else if (do_stc) command_ff <= 1'b1;
 
         if (do_ioo) dataoutreg <= iob_out[7:0];
 
-        if (jumper_w4 && feedhole) datainreg <= datain;
+        if (jumper_w4 && flag) datainreg <= datain;
         else if (~jumper_w4 & ~jumper_w9) datainreg <= datain;
       end
     end

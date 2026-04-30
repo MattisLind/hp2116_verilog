@@ -56,6 +56,9 @@ module hp2116_cpu #(
   output logic [7:0]   ptr_dataout,
   input  logic         ptr_feedhole,
   output logic         ptr_read,
+  input  logic [7:0]   ptp_datain,
+  output logic [7:0]   ptp_dataout,
+  output logic         ptp_punch,  
   input  logic         stm32_fsmc_ne,
   input  logic         stm32_fsmc_nadv,
   input  logic         stm32_fsmc_nwe,
@@ -65,7 +68,7 @@ module hp2116_cpu #(
   output logic        stm32_drq
 );
 
-
+  logic ptp_dummy;
 
   //--------------------------------------------------------------------------
   // Registers
@@ -88,7 +91,7 @@ module hp2116_cpu #(
   logic iog;
   logic prl;
   logic flgl;
-  logic flgl11, flgl12, flgl13;
+  logic flgl11, flgl12, flgl13, flgl15;
   logic sfc;
   logic irq10;
   logic clf;
@@ -97,7 +100,7 @@ module hp2116_cpu #(
   logic iak;
   logic t3;
   logic skf;
-  logic flgh_dummy1, flgh_dummy2, flgh_dummy3, flgh_dummy4;
+  logic flgh_dummy1, flgh_dummy2, flgh_dummy3, flgh_dummy4, flgh_dummy5;
 
   logic ioo;
   logic clc;
@@ -108,9 +111,10 @@ module hp2116_cpu #(
   logic irqh_dummy1;
   logic irqh_dummy2;
   logic irqh_dummy3;
+  logic irqh_dummy5;
   logic srq10, srq11, srq12, srq13, srq14, srq15, srq16, srq17, srq20, srq21, srq22, srq23, srq24, srq25, srq26, srq27;
   logic [15:0] iob_out;
-  logic [15:0] iob_in10, iob_in11, iob_in12, iob_in_internal, dummy, iob_in13;
+  logic [15:0] iob_in10, iob_in11, iob_in12, iob_in_internal, dummy, iob_in13, iob_in15;
 
   logic sir;
   logic enf;
@@ -122,8 +126,8 @@ module hp2116_cpu #(
 
   logic crs;
   logic prl11;
-  logic irq11, irq12, irq13, irq14;
-  logic skf10, skf12, skf13;
+  logic irq11, irq12, irq13, irq14, irq15;
+  logic skf10, skf12, skf13, skf15;
   logic skf11;
   logic ptr_read_dummy;
   logic [7:0] ptr_dataout_dummy;
@@ -257,8 +261,8 @@ hp12597a ptr (
   .sfsb_or_bioi_n(1'b0),
   .datain(ptr_datain),
   .dataout(ptr_dataout),
-  .feedhole(ptr_feedhole),
-  .read(ptr_read),
+  .flag(ptr_feedhole),
+  .devicecommand(ptr_read),
   .jumper_w4(1'b1),
   .jumper_w9(1'b0)
 );
@@ -348,7 +352,7 @@ hp13210a disk7900 (
   .clk(clk),
   .crs(crs),
 
-  .prl(prl),
+  .prl(prl_out_from_14),
   .flgl(flgl13),
   .sfc(sfc),
   .irql(irq13),
@@ -399,6 +403,63 @@ hp13210a disk7900 (
   .stm32_fsmc_ad(stm32_fsmc_ad),
   .stm32_drq(stm32_drq),
   .stm32_irq(stm32_irq)
+);
+
+
+hp12597a ptp (
+  .clk(clk),
+  .crs(crs),
+
+  .prl(prl),
+  .flgl(flgl15),
+  .sfc(sfc),
+  .irql(irq15),
+  .clf(clf),
+  .ien(Interrupt_System_Enable),
+  .stf(stf),
+  .iak(iak),
+  .t3(t3),
+  .skf(skf15),
+
+  .scm_l(msc1),
+  .scl_l(lsc5),
+
+  .iog(iog),
+  .popio(popio | preset_btn),
+
+  .iob16_or_bios_n(1'b0),
+
+  .srq(srq15),
+  .ioo(ioo),
+  .clc(clc),
+  .stc(stc),
+  .prh(prl_out_from_14),
+  .ioi(ioi),
+  .sfs(sfs),
+
+  .irqh(irqh_dummy5),
+  .scl_h(1'b0),
+  .scm_h(1'b0),
+
+  .iob_out(iob_out),
+  .iob_in(iob_in15),
+
+  .sir(sir),
+  .enf(enf),
+  .flgh(flgh_dummy5),
+
+  .run(RUN),
+
+  .edt(edt),
+  .pon(pon),
+  .bioo_n(1'b0),
+  .sfsb_or_bioi_n(1'b0),
+  .datain(ptp_datain),
+  .dataout(ptp_dataout),
+  .flag(ptp_dummy),
+  .devicecommand(ptp_punch),
+  .jumper_w4(1'b1),
+  .jumper_w9(1'b0)
 );
 
   //--------------------------------------------------------------------------
@@ -457,6 +518,7 @@ hp13210a disk7900 (
   logic normal_instruction_execution;
   logic [5:0] sc_mux;
   always_comb begin
+    ptp_dummy = 0'b0;
     // The decoder uses the I register (IR) for the control field.
     op4 = IR[4:1];
     cz  = IR[0];
@@ -554,7 +616,6 @@ hp13210a disk7900 (
       unprotected = 1'b1;
     end
     srq14 = 1'b0;
-    srq15 = 1'b0;
     srq16 = 1'b0;
     srq17 = 1'b0;
     srq20 = 1'b0;
@@ -721,7 +782,7 @@ endfunction
   logic dma_1_control_ff, dma_2_control_ff, dma_1_reg_selector, dma_2_reg_selector;
   logic dma_1_flag_ff, dma_2_flag_ff, dma_1_flagbuffer_ff, dma_2_flagbuffer_ff, dma_1_irq_ff, dma_2_irq_ff;
   logic dma_1_transfer_enable_ff, dma_2_transfer_enable_ff;
-  logic prh_in_to_dma_1, prl_out_from_dma_1, prh_in_to_dma_2, prl_out_from_dma_2, prl_out_from_12;
+  logic prh_in_to_dma_1, prl_out_from_dma_1, prh_in_to_dma_2, prl_out_from_dma_2, prl_out_from_12, prl_out_from_14;
   //logic dma_1_active;
 
   logic dma_ioi, dma_ioo, dma_stc, dma_clc, dma_clf;

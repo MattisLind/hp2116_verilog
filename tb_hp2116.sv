@@ -44,6 +44,10 @@ module tb_hp2116;
   logic [7:0] ptr_datain;
   logic [7:0] ptr_dataout;
   logic ptr_feedhole;
+
+  logic [7:0]  ptp_datain;
+  logic [7:0]  ptp_dataout;
+  logic ptp_punch;
   logic ptr_read;
   longint cycles;
     // File handle and temporary variable for the paper tape reader.
@@ -115,6 +119,9 @@ module tb_hp2116;
     .ptr_dataout(ptr_dataout),
     .ptr_feedhole(ptr_feedhole),
     .ptr_read(ptr_read),
+    .ptp_datain(ptp_datain),
+    .ptp_dataout(ptp_dataout),
+    .ptp_punch(ptp_punch),    
     .loader_protected_switch(loader_protected_switch),
     .stm32_fsmc_ne(stm32_fsmc_ne1),
     .stm32_fsmc_nadv(stm32_fsmc_nadv),
@@ -2124,6 +2131,8 @@ end
     rst_n = 1'b1;
     tty_skip_count = 0;
     playback_enable = 1'b0;
+    ptp_datain = 8'o000;
+
     // Fill with HALT then load ABS
     load_hp21xx_abs(loadfile, /*do_fill_halt=*/1'b1);
 
@@ -2230,7 +2239,7 @@ end
           pulse_btn(run_btn);
           $display("A=%06o", saved_A);
           if (saved_A == 16'o104003) sw <= 16'o000010;
-          else if (saved_A == 16'o146200) sw <= 16'o000011;
+          else if (saved_A == 16'o146200) sw <= 16'o001115;
           else if (saved_A == 16'o101220) sw <= 16'o000012;
           else if (saved_A == 16'o143300) sw <= 16'o000012; 
           else if (saved_A == 16'o101105) sw <= 16'o000012;
