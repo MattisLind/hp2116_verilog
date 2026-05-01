@@ -513,7 +513,7 @@ hp12539c tbg (
   .bioo_n(1'b0),
   .sfsb_or_bioi_n(1'b0),
   .jumper_w1("A"), //  Position A: Bit 5 is always 0.
-  .jumper_w2("A") //  Position A: Normal mode
+  .jumper_w2("B") //  Position A: Normal mode
 
 );
 
@@ -1760,7 +1760,14 @@ endfunction
                   end
                   else if (irq14) begin
                     M <= 15'o000014;                                    
-                  end
+                  end 
+                  else if (irq15) begin
+                    M <= 15'o000015;                                    
+                  end 
+                  else if (irq16) begin
+                    M <= 15'o000016;                                    
+                  end 
+
                 end
               end
 

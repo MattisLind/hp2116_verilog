@@ -2244,6 +2244,7 @@ end
           else if (saved_A == 16'o143300) sw <= 16'o000012; 
           else if (saved_A == 16'o101105) sw <= 16'o000012;
           else if (saved_A == 16'o151302) sw <= 16'o000013;
+          else if (saved_A == 16'o103301) sw <= 16'o100016;
           else sw <= 16'o000000;
           $display("sw=%06o", sw);
           // Wait a little before pulsing the RUN button
@@ -2271,7 +2272,7 @@ end
         #1
         pulse_btn(run_btn);
         #1;
-      end else if ((cpu.TR == 16'o102024) && (DSN=="104003" || DSN=="143300")) begin 
+      end else if ((cpu.TR == 16'o102024) && (DSN=="104003" || DSN=="143300" || DSN == "103301")) begin 
         pulse_btn(preset_btn);
         #1
         pulse_btn(run_btn);
