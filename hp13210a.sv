@@ -360,47 +360,6 @@ module hp13210a #(
         //else if (drv3_sel) attention_input_register[3] <=1'b1;
         else if (stm32_write_7900_attention) attention_input_register[3] <= stm32_fsmc_ad[3] | attention_input_register[3];
 
-
-/*
-
-
-        if (crs | (stc & ~cmd_status & csel) ) first_status <= 1'b0;
-        else if (strobe_status) first_status <= stm32_fsmc_ad[14];
-
-        if (crs | (stc & ~cmd_status & csel) ) end_of_cylinder <= 1'b0;
-        else if (strobe_status) end_of_cylinder <= stm32_fsmc_ad[5];
-
-        if (crs | (stc & ~cmd_status & csel) ) overrun <= 1'b0;
-        else if (strobe_status) overrun <= stm32_fsmc_ad[13];
-
-        if (crs | (stc & ~cmd_status & csel) ) drive_unsafe <= 1'b0;
-        else if (strobe_status) drive_unsafe <= stm32_fsmc_ad[11];   
-
-        if (crs | (stc & ~cmd_status & csel) ) address_error <= 1'b0;
-        else if (strobe_status) address_error <= stm32_fsmc_ad[4];               
-
-        if (crs | (stc & ~cmd_status & csel) ) flagged_cylinder <= 1'b0;
-        else if (strobe_status) flagged_cylinder <= stm32_fsmc_ad[3]; 
-
-        if (crs | (stc & ~cmd_status & csel) ) data_protect <= 1'b0;
-        else if (strobe_status) data_protect <= stm32_fsmc_ad[10]; 
-
-        if (crs | (stc & ~cmd_status & csel) ) drive_busy <= 1'b0;
-        else if (strobe_status) drive_busy <= stm32_fsmc_ad[10];       
-
-        if (crs | (stc & ~cmd_status & csel) ) seek_check <= 1'b0;
-        else if (strobe_status) seek_check <= stm32_fsmc_ad[8];   
-
-        if (crs | (stc & ~cmd_status & csel) ) data_error <= 1'b0;
-        else if (strobe_status) data_error <= stm32_fsmc_ad[1];    
-
-        if (crs | sk_set_dflag | ((cmd_status | cmd_cd) & gate_status)) data_channel_encode_ff <= 1'b0;
-        else if (stc & dsel) data_channel_encode_ff <= 1'b1;     
-
-        if (command_channel_control_ff | strobe_s6) command_channel_encode_ff <= 1'b0;
-        else if (stc & csel) command_channel_encode_ff <= 1'b1;
-       */ 
-
         if (dsel & ioo) data_interface_output_buffer_register <= iob_out;
       end
     end
