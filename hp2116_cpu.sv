@@ -91,7 +91,7 @@ module hp2116_cpu #(
   logic iog;
   logic prl;
   logic flgl;
-  logic flgl11, flgl12, flgl13, flgl15;
+  logic flgl11, flgl12, flgl13, flgl15, flgl16;
   logic sfc;
   logic irq10;
   logic clf;
@@ -100,7 +100,7 @@ module hp2116_cpu #(
   logic iak;
   logic t3;
   logic skf;
-  logic flgh_dummy1, flgh_dummy2, flgh_dummy3, flgh_dummy4, flgh_dummy5;
+  logic flgh_dummy1, flgh_dummy2, flgh_dummy3, flgh_dummy4, flgh_dummy5, flgh_dummy6;
 
   logic ioo;
   logic clc;
@@ -112,9 +112,10 @@ module hp2116_cpu #(
   logic irqh_dummy2;
   logic irqh_dummy3;
   logic irqh_dummy5;
+  logic irqh_dummy6;  
   logic srq10, srq11, srq12, srq13, srq14, srq15, srq16, srq17, srq20, srq21, srq22, srq23, srq24, srq25, srq26, srq27;
   logic [15:0] iob_out;
-  logic [15:0] iob_in10, iob_in11, iob_in12, iob_in_internal, dummy, iob_in13, iob_in15;
+  logic [15:0] iob_in10, iob_in11, iob_in12, iob_in_internal, dummy, iob_in13, iob_in15, iob_in16;
 
   logic sir;
   logic enf;
@@ -126,8 +127,8 @@ module hp2116_cpu #(
 
   logic crs;
   logic prl11;
-  logic irq11, irq12, irq13, irq14, irq15;
-  logic skf10, skf12, skf13, skf15;
+  logic irq11, irq12, irq13, irq14, irq15, irq16;
+  logic skf10, skf12, skf13, skf15, skf16;
   logic skf11;
   logic ptr_read_dummy;
   logic [7:0] ptr_dataout_dummy;
@@ -410,7 +411,7 @@ hp12597a ptp (
   .clk(clk),
   .crs(crs),
 
-  .prl(prl),
+  .prl(prl_out_from_15),
   .flgl(flgl15),
   .sfc(sfc),
   .irql(irq15),
@@ -460,6 +461,60 @@ hp12597a ptp (
   .devicecommand(ptp_punch),
   .jumper_w4(1'b1),
   .jumper_w9(1'b0)
+);
+
+
+hp12539c tbg (
+  .clk(clk),
+  .crs(crs),
+
+  .prl(prl),
+  .flgl(flgl16),
+  .sfc(sfc),
+  .irql(irq16),
+  .clf(clf),
+  .ien(Interrupt_System_Enable),
+  .stf(stf),
+  .iak(iak),
+  .t3(t3),
+  .skf(skf16),
+
+  .scm_l(msc1),
+  .scl_l(lsc6),
+
+  .iog(iog),
+  .popio(popio | preset_btn),
+
+  .iob16_or_bios_n(1'b0),
+
+  .srq(srq16),
+  .ioo(ioo),
+  .clc(clc),
+  .stc(stc),
+  .prh(prl_out_from_15),
+  .ioi(ioi),
+  .sfs(sfs),
+
+  .irqh(irqh_dummy6),
+  .scl_h(1'b0),
+  .scm_h(1'b0),
+
+  .iob_out(iob_out),
+  .iob_in(iob_in16),
+
+  .sir(sir),
+  .enf(enf),
+  .flgh(flgh_dummy6),
+
+  .run(RUN),
+
+  .edt(edt),
+  .pon(pon),
+  .bioo_n(1'b0),
+  .sfsb_or_bioi_n(1'b0),
+  .jumper_w1("A"), //  Position A: Bit 5 is always 0.
+  .jumper_w2("A") //  Position A: Normal mode
+
 );
 
   //--------------------------------------------------------------------------
@@ -600,7 +655,7 @@ hp12597a ptp (
     skip_dma6 = (sfc & (sc == 6'o06) & ~dma_1_flag_ff) | (sfs & (sc == 6'o06) & dma_1_flag_ff);
     skip_dma7 = (sfc & (sc == 6'o07) & ~dma_2_flag_ff) | (sfs & (sc == 6'o07) & dma_2_flag_ff);
     skip_intp = sfc_intp | sfs_intp;
-    skip_io = skf10 | skf11 | skf12 | skf13 | skip_intp | skip_dma6 | skip_dma7;
+    skip_io = skf10 | skf11 | skf12 | skf13 | skf15 | skf16 | skip_intp | skip_dma6 | skip_dma7;
     clf = ((clear_flag & normal_instruction_execution) | dma_clf) & state45;
     stf = set_flag & normal_instruction_execution & state45;
     stc = ((set_control & normal_instruction_execution)| dma_stc) & state34;
@@ -609,14 +664,13 @@ hp12597a ptp (
     sir = (tstate == T5);
     enf = (tstate == T2);
     crs = clc & msc0 & lsc0 | popio;
-    interrupt = (irq10 | irq11 | irq12 | irq13 | irq14 | dma_1_irq_ff | dma_2_irq_ff)  & Interrupt_System_Enable & Interrupt_Control;
+    interrupt = (irq10 | irq11 | irq12 | irq13 | irq14 | irq15 | irq16 | dma_1_irq_ff | dma_2_irq_ff)  & Interrupt_System_Enable & Interrupt_Control;
     if ((M >= 15'o77700) && loader_protected_switch) begin
       unprotected = 1'b0;
     end else begin
       unprotected = 1'b1;
     end
     srq14 = 1'b0;
-    srq16 = 1'b0;
     srq17 = 1'b0;
     srq20 = 1'b0;
     srq21 = 1'b0;
@@ -643,7 +697,7 @@ always @* begin
         endcase
     end
     else begin
-      iob_in_internal = iob_in10 | iob_in11 | iob_in12 | iob_in13;
+      iob_in_internal = iob_in10 | iob_in11 | iob_in12 | iob_in13 | iob_in15 | iob_in16;
     end
 end
 
@@ -782,7 +836,7 @@ endfunction
   logic dma_1_control_ff, dma_2_control_ff, dma_1_reg_selector, dma_2_reg_selector;
   logic dma_1_flag_ff, dma_2_flag_ff, dma_1_flagbuffer_ff, dma_2_flagbuffer_ff, dma_1_irq_ff, dma_2_irq_ff;
   logic dma_1_transfer_enable_ff, dma_2_transfer_enable_ff;
-  logic prh_in_to_dma_1, prl_out_from_dma_1, prh_in_to_dma_2, prl_out_from_dma_2, prl_out_from_12, prl_out_from_14;
+  logic prh_in_to_dma_1, prl_out_from_dma_1, prh_in_to_dma_2, prl_out_from_dma_2, prl_out_from_12, prl_out_from_14, prl_out_from_15;
   //logic dma_1_active;
 
   logic dma_ioi, dma_ioo, dma_stc, dma_clc, dma_clf;
