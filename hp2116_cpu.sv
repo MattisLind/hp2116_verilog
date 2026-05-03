@@ -72,7 +72,8 @@ module hp2116_cpu #(
   input  logic        lpt_output_resume,
   input  logic        lpt_line_ready,
   input  logic        lpt_paper_out,
-  input  logic        lpt_ready  
+  input  logic        lpt_ready,
+  output logic        lpt_controlbit  
 );
 
   logic ptp_dummy;
@@ -579,6 +580,7 @@ hp12845a lpt (
   .output_resume(lpt_output_resume),
   .line_ready(lpt_line_ready),
   .paper_out(lpt_paper_out),
+  .controlbit(lpt_controlbit),
   .ready(lpt_ready),
   .jumper_w1("IN"), 
   .jumper_w2("IN"), 

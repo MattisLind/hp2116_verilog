@@ -122,7 +122,7 @@ fi
 #./build_hp2116.sh diagnostics/12821-16001_DSN103024_12821_ICD_DISC_INTERFACE.abin 103024 NO $TRACE
 
 # Running 2607 Line Printer diagnostic - diag failed - not implemented
-#./build_hp2116.sh diagnostics/24340-16001_DSN105102_2607_LINE_PRINTER.abin 105102 NO $TRACE
+./build_hp2116.sh diagnostics/24340-16001_DSN105102_2607_LINE_PRINTER.abin 105102 NO $TRACE
 
 # Running 2613/17/18 Line Printer diagnostic - diag failed - not implemented
 #./build_hp2116.sh diagnostics/02618-16001_DSN145103_2613_17_18_LINE_PRINTER.abin 145103 NO $TRACE

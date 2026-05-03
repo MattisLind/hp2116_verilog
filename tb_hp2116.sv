@@ -94,6 +94,12 @@ module tb_hp2116;
   logic         lpt_line_ready;
   logic         lpt_paper_out;
   logic         lpt_ready;
+  logic         lpt_controlbit;
+
+
+  integer lpt_fd;
+  string  lpt_filename;
+  string  lpt_line_buffer;
 
   // CPU instance
   hp2116_cpu #(
@@ -145,7 +151,8 @@ module tb_hp2116;
     .lpt_output_resume(lpt_output_resume),
     .lpt_line_ready(lpt_line_ready),
     .lpt_paper_out(lpt_paper_out),
-    .lpt_ready(lpt_ready)
+    .lpt_ready(lpt_ready),
+    .lpt_controlbit(lpt_controlbit)
   );
 
   // --------------------------------------------------------------------------
@@ -506,6 +513,8 @@ final begin
     // Kodkommentar: Skriv tillbaka alla diskbilder när simuleringen avslutas.
     for (int d = 0; d < DISK_DRIVES; d++)
         disk_save_image(d);
+    if (lpt_fd != 0)
+        $fclose(lpt_fd);        
 end
 
 
@@ -2148,10 +2157,7 @@ end
     tty_skip_count = 0;
     playback_enable = 1'b0;
     ptp_datain = 8'o000;
-    lpt_output_resume = 1'b0;
-    lpt_line_ready = 1'b0;
-    lpt_paper_out = 1'b0;
-    lpt_ready = 1'b0;
+
 
     // Fill with HALT then load ABS
     load_hp21xx_abs(loadfile, /*do_fill_halt=*/1'b1);
@@ -2283,17 +2289,19 @@ end
       end else if (cpu.TR == 16'o102074) begin
         if (DSN == "101220") begin
           sw <= 16'o000400; 
-        end if (DSN == "143300") begin
+        end else if (DSN == "143300") begin
           sw <= 16'o006400; 
-        end if (DSN == "151302") begin
+        end else if (DSN == "151302") begin
           sw <= 16'o000000; 
+        end else if (DSN == "105102") begin
+          sw <= 16'o000400; 
         end else begin
           sw <= 16'o000000; 
         end
         #1
         pulse_btn(run_btn);
         #1;
-      end else if ((cpu.TR == 16'o102024) && (DSN=="104003" || DSN=="143300" || DSN == "103301")) begin 
+      end else if ((cpu.TR == 16'o102024) && (DSN=="104003" || DSN=="143300" || DSN == "103301"|| DSN == "105102")) begin 
         pulse_btn(preset_btn);
         #1
         pulse_btn(run_btn);
@@ -2365,6 +2373,36 @@ end
         #1;
         pulse_btn(run_btn);
         #1;        
+      end else if ((cpu.TR == 16'o102040) && (DSN=="105102")) begin
+        #1
+        lpt_ready <= 1'b1;
+        lpt_paper_out <= 1'b1;
+        #1;
+        pulse_btn(run_btn);
+        #1;        
+      end else if ((cpu.TR == 16'o102041) && (DSN=="105102")) begin
+        #1
+        lpt_ready <= 1'b1;
+        lpt_paper_out <= 1'b0;
+        #1;
+        pulse_btn(run_btn);
+        #1;        
+      end else if ((cpu.TR == 16'o102042) && (DSN=="105102")) begin
+        #1
+        lpt_ready <= 1'b0;
+        lpt_paper_out <= 1'b0;
+        lpt_line_ready <= 1'b0;
+        #1;
+        pulse_btn(run_btn);
+        #1;        
+      end else if ((cpu.TR == 16'o102043) && (DSN=="105102")) begin
+        #1
+        lpt_ready <= 1'b1;
+        lpt_paper_out <= 1'b0;
+        lpt_line_ready <= 1'b1;
+        #1;
+        pulse_btn(run_btn);
+        #1;        
       end else if (DSN == "151302") begin 
         
         if (cpu.P == 15'o076762) begin //TIME 449412385000: CPU HALTED P=076762 IR=000053 TR=126741 A=077341 B=017074
@@ -2381,4 +2419,72 @@ end
       end
   end
 
+// Kodkommentar: Simulerad line printer.
+// Kodkommentar: Tecken tas emot via lpt_data när lpt_info_ready strobar.
+// Kodkommentar: Vanliga tecken buffras. Controlbit betyder "print line".
+  initial begin : line_printer_model
+      lpt_output_resume = 1'b0;
+      lpt_line_ready    = 1'b1;
+      lpt_paper_out     = 1'b0;
+      lpt_ready         = 1'b1;
+      lpt_line_buffer   = "";
+
+      // Kodkommentar: Filnamn kan anges med +LPTFILE=filnamn.
+      if (!$value$plusargs("LPTFILE=%s", lpt_filename))
+          lpt_filename = "lineprinter.txt";
+
+      lpt_fd = $fopen(lpt_filename, "w");
+      if (lpt_fd == 0)
+          $fatal(1, "LPT: could not open %s for writing", lpt_filename);
+
+      $display("LPT: printing to %s", lpt_filename);
+
+      forever begin
+          // Kodkommentar: Master reset från interface tömmer bufferten och återställer status.
+          if (lpt_master_reset) begin
+              lpt_line_buffer   = "";
+              lpt_output_resume = 1'b0;
+              lpt_line_ready    = 1'b1;
+              lpt_paper_out     = 1'b0;
+              lpt_ready         = 1'b1;
+              @(negedge lpt_master_reset);
+          end
+
+          // Kodkommentar: Vänta på strobe från interface.
+          @(posedge lpt_info_ready);
+
+
+          if (lpt_controlbit) begin
+              // Kodkommentar: Controlbit betyder att aktuell rad ska skrivas ut.
+              $fwrite(lpt_fd, "%s\r\n", lpt_line_buffer);
+              $fflush(lpt_fd);
+
+              $display("LPT: printed line: \"%s\" at time %0t",
+                      lpt_line_buffer, $time);
+
+              lpt_line_buffer = "";
+              lpt_line_ready = 1'b0;
+              // Kodkommentar: Simulera mekanisk radmatning/utskriftstid.
+              #(1_000ns);
+              lpt_line_ready = 1'b1;
+              #(1_000ns);
+          end
+          else begin
+              // Kodkommentar: Lägg till 7-bitars ASCII-tecken i radbufferten.
+              lpt_line_buffer = {lpt_line_buffer, string'(byte'(lpt_data))};
+          end
+          #(100ns);
+          // Kodkommentar: Pulsa output_resume så interface vet att tecknet/raden hanterats.
+          lpt_output_resume = 1'b1;
+          
+          #(100ns);
+          lpt_output_resume = 1'b0;
+          
+      end
+  end
+
+
 endmodule
+
+
+

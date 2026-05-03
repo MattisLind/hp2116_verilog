@@ -54,6 +54,7 @@ module hp12845a #(
   input  logic         bioo_n,
   input  logic         sfsb_or_bioi_n,
   output logic [6:0]   dataoutreg,
+  output logic         controlbit,
   output logic         information_ready,
   output logic         master_reset,
   input  logic         output_resume,
@@ -95,7 +96,7 @@ module hp12845a #(
   logic        ready_ff;
   logic        paper_out_ff;
 
-  logic        controlbit;
+  logic        controlbit_ff;
   logic        enf_delayed;
   logic        combined_ready;
   logic        command_ack;
@@ -136,12 +137,12 @@ module hp12845a #(
     if (do_ioi) iob_in[15] = ready_ff;
     if (do_ioi) iob_in[14] = paper_out_ff;
     if (do_ioi) iob_in[0] = line_ready_ff;
-
+    controlbit = controlbit_ff;
     information_ready = information_ready_ff;
     master_reset = crs;
     if (jumper_w7 == "IN") begin
       combined_ready = ( ~line_ready | output_resume);
-      command_ack = ~combined_ready;
+      command_ack = combined_ready;
     end
     else begin
       command_ack = ~output_resume;
@@ -189,7 +190,7 @@ module hp12845a #(
         else if (do_stc) information_ready_ff <= 1'b1;
 
         if (do_ioo) dataoutreg <= iob_out[6:0];
-        if (do_ioo) controlbit <= iob_out[15]; 
+        if (do_ioo) controlbit_ff <= iob_out[15]; 
 
         if (~enf & enf_delayed) begin
           ready_ff <= ready;
