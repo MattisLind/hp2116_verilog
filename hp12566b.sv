@@ -107,9 +107,6 @@ module hp12566b #(
   logic        flag_ff;
   logic        flag_buffer_ff;
   logic        control_ff;
-  logic        inout_ff;
-  logic        print_ff;
-  logic        punch_ff;
   logic        irq_ff;
   logic        command_ff;
   logic        data_ff;

@@ -86,6 +86,15 @@ module tb_hp2116;
   logic         stm32_fsmc_noe;
   logic         stm32_irq;
   logic         stm32_drq;
+
+  logic  [6:0]  lpt_data;
+  logic         lpt_info_ready;
+  logic         lpt_master_reset;
+  logic         lpt_output_resume;
+  logic         lpt_line_ready;
+  logic         lpt_paper_out;
+  logic         lpt_ready;
+
   // CPU instance
   hp2116_cpu #(
   ) cpu (
@@ -129,7 +138,14 @@ module tb_hp2116;
     .stm32_fsmc_noe(stm32_fsmc_noe),
     .stm32_fsmc_ad(stm32_fsmc_ad),
     .stm32_irq(stm32_irq),
-    .stm32_drq(stm32_drq)
+    .stm32_drq(stm32_drq),
+    .lpt_data(lpt_data),
+    .lpt_info_ready(lpt_info_ready),
+    .lpt_master_reset(lpt_master_reset),
+    .lpt_output_resume(lpt_output_resume),
+    .lpt_line_ready(lpt_line_ready),
+    .lpt_paper_out(lpt_paper_out),
+    .lpt_ready(lpt_ready)
   );
 
   // --------------------------------------------------------------------------
@@ -2132,6 +2148,10 @@ end
     tty_skip_count = 0;
     playback_enable = 1'b0;
     ptp_datain = 8'o000;
+    lpt_output_resume = 1'b0;
+    lpt_line_ready = 1'b0;
+    lpt_paper_out = 1'b0;
+    lpt_ready = 1'b0;
 
     // Fill with HALT then load ABS
     load_hp21xx_abs(loadfile, /*do_fill_halt=*/1'b1);
@@ -2245,6 +2265,7 @@ end
           else if (saved_A == 16'o101105) sw <= 16'o000012;
           else if (saved_A == 16'o151302) sw <= 16'o000013;
           else if (saved_A == 16'o103301) sw <= 16'o100016;
+          else if (saved_A == 16'o105102) sw <= 16'o000020;
           else sw <= 16'o000000;
           $display("sw=%06o", sw);
           // Wait a little before pulsing the RUN button
