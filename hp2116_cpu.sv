@@ -59,6 +59,7 @@ module hp2116_cpu #(
   input  logic [7:0]   ptp_datain,
   output logic [7:0]   ptp_dataout,
   output logic         ptp_punch,  
+  input  logic         ptp_flag,
   input  logic         stm32_fsmc_ne,
   input  logic         stm32_fsmc_nadv,
   input  logic         stm32_fsmc_nwe,
@@ -466,7 +467,7 @@ hp12597a ptp (
   .sfsb_or_bioi_n(1'b0),
   .datain(ptp_datain),
   .dataout(ptp_dataout),
-  .flag(ptp_dummy),
+  .flag(ptp_flag),
   .devicecommand(ptp_punch),
   .jumper_w4(1'b1),
   .jumper_w9(1'b0)

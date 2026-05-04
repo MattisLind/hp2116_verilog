@@ -48,6 +48,7 @@ module tb_hp2116;
   logic [7:0]  ptp_datain;
   logic [7:0]  ptp_dataout;
   logic ptp_punch;
+  logic ptp_flag;
   logic ptr_read;
   longint cycles;
     // File handle and temporary variable for the paper tape reader.
@@ -101,6 +102,11 @@ module tb_hp2116;
   string  lpt_filename;
   string  lpt_line_buffer;
 
+    // Kodkommentar: Paper tape punch output file handling.
+  integer ptp_fd;
+  string  ptp_filename;
+  logic   ptp_file_open;
+
   // CPU instance
   hp2116_cpu #(
   ) cpu (
@@ -136,7 +142,8 @@ module tb_hp2116;
     .ptr_read(ptr_read),
     .ptp_datain(ptp_datain),
     .ptp_dataout(ptp_dataout),
-    .ptp_punch(ptp_punch),    
+    .ptp_punch(ptp_punch), 
+    .ptp_flag(ptp_flag),   
     .loader_protected_switch(loader_protected_switch),
     .stm32_fsmc_ne(stm32_fsmc_ne1),
     .stm32_fsmc_nadv(stm32_fsmc_nadv),
@@ -514,7 +521,9 @@ final begin
     for (int d = 0; d < DISK_DRIVES; d++)
         disk_save_image(d);
     if (lpt_fd != 0)
-        $fclose(lpt_fd);        
+        $fclose(lpt_fd); 
+
+    ptp_close_file();           
 end
 
 
@@ -2301,7 +2310,7 @@ end
         #1
         pulse_btn(run_btn);
         #1;
-      end else if ((cpu.TR == 16'o102024) && (DSN=="104003" || DSN=="143300" || DSN == "103301"|| DSN == "105102")) begin 
+      end else if ((cpu.TR == 16'o102024) && (DSN=="104003" || DSN=="143300" || DSN == "103301"|| DSN == "105102" || DSN == "146200")) begin 
         pulse_btn(preset_btn);
         #1
         pulse_btn(run_btn);
@@ -2337,6 +2346,16 @@ end
         pulse_btn(preset_btn);
         #1
         $display("TIME %0t:Press PRESET BUTTON", $time);
+        pulse_btn(run_btn);
+        #1;
+      end else if ((cpu.TR == 16'o102051) && (DSN=="146200")) begin 
+        #1
+        pulse_btn(run_btn);
+        #1;
+      end else if ((cpu.TR == 16'o102052) && (DSN=="146200")) begin 
+        #1
+        ptp_close_file();
+        #1;
         pulse_btn(run_btn);
         #1;
       end else if ((cpu.TR == 16'o107076) && (loadfile =="diagnostics/24185-60001_Rev-A.abin")) begin
@@ -2481,6 +2500,77 @@ end
           lpt_output_resume = 1'b0;
           
       end
+  end
+
+
+
+  // Kodkommentar: Skriv en rad med nollbytes som leader/trailer.
+  task automatic ptp_write_nulls(input int count);
+    begin
+      if (ptp_file_open && (ptp_fd != 0)) begin
+        for (int i = 0; i < count; i++) begin
+          $fwrite(ptp_fd, "%c", 8'h00);
+        end
+        $fflush(ptp_fd);
+      end
+    end
+  endtask
+
+
+  // Kodkommentar: Stäng punch-filen och skriv trailer först.
+  // Kodkommentar: Kan anropas manuellt under testet så filen kan användas som reader-input.
+  task automatic ptp_close_file();
+    begin
+      if (ptp_file_open && (ptp_fd != 0)) begin
+        ptp_write_nulls(20);
+        $fclose(ptp_fd);
+        ptp_fd = 0;
+        ptp_file_open = 1'b0;
+
+        $display("PTP: closed punch file %s at time %0t", ptp_filename, $time);
+      end
+    end
+  endtask
+
+  // Kodkommentar: Simulerad paper tape punch.
+  // Kodkommentar: Varje gång ptp_punch strobar skrivs ptp_dataout till fil.
+  initial begin : paper_tape_punch
+    ptp_fd = 0;
+    ptp_file_open = 1'b0;
+
+    // Kodkommentar: Filnamn kan anges med +PTPFILE=...
+    if (!$value$plusargs("PTPFILE=%s", ptp_filename))
+      ptp_filename = "paper_tape_punch.bin";
+
+    ptp_fd = $fopen(ptp_filename, "wb");
+    if (ptp_fd == 0) begin
+      $fatal(1, "PTP: could not open punch file %s", ptp_filename);
+    end
+
+    ptp_file_open = 1'b1;
+    $display("PTP: opened punch file %s", ptp_filename);
+
+    // Kodkommentar: Skriv 20 nollbytes som leader.
+    ptp_write_nulls(20);
+
+    forever begin
+      @(posedge ptp_punch);
+
+      if (ptp_file_open && (ptp_fd != 0)) begin
+        $fwrite(ptp_fd, "%c", ptp_dataout);
+        $fflush(ptp_fd);
+
+        if (trace == "YES") begin
+          $display("PTP: punched byte %03o (0x%02h) at time %0t",
+                   ptp_dataout, ptp_dataout, $time);
+        end
+      end
+      #(100ns);
+      ptp_flag = 1'b1;
+      #(1us);
+      ptp_flag = 1'b0;
+      #(1us);
+    end
   end
 
 
