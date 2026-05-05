@@ -379,8 +379,8 @@ task automatic stm32_write_cylinder();
             off = disk_byte_offset(rar_cylinder, rar_head, rar_sector) + (word_count * 2);
 
             // Kodkommentar: Skriv ordet till image. Byt byteordning här om din image kräver det.
-            disk_image[selected_drive][off + 0] = indata[15:8];
-            disk_image[selected_drive][off + 1] = indata[7:0];
+            disk_image[selected_drive][off + 1] = indata[15:8];
+            disk_image[selected_drive][off + 0] = indata[7:0];
                       
             if (eoc_flag) begin
               end_of_cylinder[selected_drive] = 1'b1;
@@ -401,27 +401,30 @@ task automatic stm32_read_cylinder(
     begin
         word_count   = 0;
         eoc_flag = 1'b0;
-        //$display("[%0t] STM32 READ: drive=%d cyl=%d head=%d sector=%d", $time, selected_drive, rar_cylinder, rar_head, rar_sector);
+        
         while (1) begin
 
             // Kodkommentar: Beräkna plats i diskimage.
             off = disk_byte_offset(rar_cylinder, rar_head, rar_sector) + (word_count * 2);
-
+            
             // Kodkommentar: Skriv ordet till image. Byt byteordning här om din image kräver det.
-            data[15:8] = disk_image[selected_drive][off + 0];
-            data[7:0] =  disk_image[selected_drive][off + 1];
-
-            stm32_fsmc_write16(STM32_REG_7900_DATA, data);
+            data[15:8] = disk_image[selected_drive][off + 1];
+            data[7:0] =  disk_image[selected_drive][off + 0];
+            //$display("Calculated offset = %08H data=%04H", off, data);
+            $display("[%015t] q%d cyl=%d head=%d sector=%d offset=%08X data= %06o", $time, selected_drive, rar_cylinder, rar_head, rar_sector, off,data);
+            
             if (eoc_flag) begin
+              $display("[%0t] STM32 READ: EOC detected ", $time);
               end_of_cylinder[selected_drive] = 1'b1;
               break;  
             end
+            stm32_fsmc_write16(STM32_REG_7900_DATA, data);  // <<-- Before or after the eoc_flag check?
             calculate_rar ("READ");       
             // 
             stm32_wait_csr_bit_set_timeout(6, 600ns, got_word);
 
             if (!got_word) begin
-                //$display("[%0t] STM32 READ: timeout at C=%d H=%d S=%d W=%0d",$time, rar_cylinder, rar_head, rar_sector, word_count);
+                $display("[%0t] STM32 READ: timeout at C=%d H=%d S=%d W=%0d",$time, rar_cylinder, rar_head, rar_sector, word_count);
                 #(3000ns)
                 stm32_wait_csr_bit_set_timeout(6, 1200ns, got_word);
                 if (got_word) begin
@@ -506,7 +509,8 @@ initial begin : disk_image_init
     disk_filename[3] = "drive3.img";
 
     // Kodkommentar: Tillåt override från kommandoraden.
-    void'($value$plusargs("DISK0=%s", disk_filename[0]));
+    void'($value$plusargs("DISKNOLL=%s", disk_filename[0]));
+    $display("disk_filname[0]=%s", disk_filename[0]);
     void'($value$plusargs("DISK1=%s", disk_filename[1]));
     void'($value$plusargs("DISK2=%s", disk_filename[2]));
     void'($value$plusargs("DISK3=%s", disk_filename[3]));
@@ -777,6 +781,7 @@ endfunction
         #(4ms);
         // seek is done
         drive_busy[selected_drive] = 1'b0;
+        first_status[selected_drive] = 1'b0;
 
         // Signal attention for the drive that was done doing seek
         stm32_fsmc_write16(STM32_REG_7900_ATTENTION, {12'h000, decode2to4(selected_drive)});
@@ -910,7 +915,7 @@ endfunction
           end
 
           4'h2: begin
-            //$display("[%0t] STM32: Got Read Data command on drive %d", $time,selected_drive);
+            $display("[%0t] STM32: Got Read Data command on drive %d", $time,selected_drive);
             if (current_cylinder[selected_drive] != rar_cylinder) begin
               //$display("[%0t] STM32: address error on read", $time);
               current_cylinder[selected_drive] = 8'o000;
@@ -929,10 +934,10 @@ endfunction
 
           4'h3: begin
 
-            //$display("[%0t] STM32: Got Seek Record command on drive %d", $time,selected_drive);
+            $display("[%0t] STM32: Got Seek Record command on drive %d", $time,selected_drive);
             // Get two words over the data channel and store it into RAR
             stm32_get_seek_address();
-            //$display("[%0t] STM32: Retrieved cylinder = %d head = %d and sector =%d", $time, rar_cylinder, rar_head, rar_sector);
+            $display("[%0t] STM32: Retrieved cylinder = %d head = %d and sector =%d", $time, rar_cylinder, rar_head, rar_sector);
 
             if (drive_busy[selected_drive]) begin
               //$display("[%0t] STM32: Got Seek Record command - already busy", $time);
@@ -1991,7 +1996,7 @@ initial begin
         uart_tx,
         uart_rx,
         "\r\n\r\nDIAG. INPUT DEVICE (NO.,SC)..",
-        "2748,11\r",
+        "2748,10\r",
         4_000ns,
         20_000ns
     );
@@ -2195,10 +2200,14 @@ end
     else
       sw = 16'o000100;    // skip pre-test and go directly to configurator in conversational mode.
     pulse_btn(load_addr_btn);
-    sw = 16'o00010;
+    sw = 16'o00016;
     if (loadfile =="diagnostics/24185-60001_Rev-A.abin") begin
       loader_protected_switch = 1'b1;
       sw = 16'o000112;
+    end
+    if (loadfile =="mh_boot.abs") begin
+      sw = 16'o000000;
+      $display("Booting RTE");
     end
     // Enable single-cycle mode and do two phase-steps
     //pulse_btn(single_cycle_btn); // enter single mode + arm one phase
@@ -2273,13 +2282,13 @@ end
           pulse_btn(load_b_btn);
           pulse_btn(run_btn);
           $display("A=%06o", saved_A);
-          if (saved_A == 16'o104003) sw <= 16'o000010;
-          else if (saved_A == 16'o146200) sw <= 16'o001115;
+          if (saved_A == 16'o104003) sw <= 16'o000016;
+          else if (saved_A == 16'o146200) sw <= 16'o001017;
           else if (saved_A == 16'o101220) sw <= 16'o000012;
           else if (saved_A == 16'o143300) sw <= 16'o000012; 
           else if (saved_A == 16'o101105) sw <= 16'o000012;
-          else if (saved_A == 16'o151302) sw <= 16'o000013;
-          else if (saved_A == 16'o103301) sw <= 16'o100016;
+          else if (saved_A == 16'o151302) sw <= 16'o000022;
+          else if (saved_A == 16'o103301) sw <= 16'o100011;
           else if (saved_A == 16'o105102) sw <= 16'o000020;
           else sw <= 16'o000000;
           $display("sw=%06o", sw);

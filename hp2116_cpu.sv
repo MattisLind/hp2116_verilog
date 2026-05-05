@@ -125,7 +125,7 @@ module hp2116_cpu #(
   logic irqh_dummy7;   
   logic srq10, srq11, srq12, srq13, srq14, srq15, srq16, srq17, srq20, srq21, srq22, srq23, srq24, srq25, srq26, srq27;
   logic [15:0] iob_out;
-  logic [15:0] iob_in10, iob_in11, iob_in12, iob_in_internal, dummy, iob_in13, iob_in15, iob_in16, iob_in20;
+  logic [15:0] iob_in10, iob_in11, iob_in12, iob_in_internal, dummy, iob_in16, iob_in17, iob_in20, iob_in22;
 
   logic sir;
   logic enf;
@@ -137,8 +137,8 @@ module hp2116_cpu #(
 
   logic crs;
   logic prl11;
-  logic irq11, irq12, irq13, irq14, irq15, irq16, irq20;
-  logic skf10, skf12, skf13, skf15, skf16, skf20;
+  logic irq11, irq12,  irq16, irq17, irq20, irq22, irq23;
+  logic skf10, skf12, skf16, skf17, skf20, skf22;
   logic skf11;
   logic ptr_read_dummy;
   logic [7:0] ptr_dataout_dummy;
@@ -176,6 +176,59 @@ hp12531c serial (
   .prl(prl11),
   .flgl(flgl),
   .sfc(sfc),
+  .irql(irq16),
+  .clf(clf),
+  .ien(Interrupt_System_Enable),
+  .stf(stf),
+  .iak(iak),
+  .t3(t3),
+  .skf(skf16),
+
+  .scm_l(msc1),
+  .scl_l(lsc6),
+
+  .iog(iog),
+  .popio(popio | preset_btn),
+
+  .iob16_or_bios_n(1'b0),
+
+  .srq(srq16),
+  .ioo(ioo),
+  .clc(clc),
+  .stc(stc),
+  .prh(prl_out_from_12),
+  .ioi(ioi),
+  .sfs(sfs),
+
+  .irqh(irqh_dummy1),
+  .scl_h(1'b0),
+  .scm_h(1'b0),
+
+  .iob_out(iob_out),
+  .iob_in(iob_in16),
+
+  .sir(sir),
+  .enf(enf),
+  .flgh(flgh_dummy1),
+
+  .run(RUN),
+
+  .edt(edt),
+  .pon(pon),
+  .bioo_n(1'b0),
+  .sfsb_or_bioi_n(1'b0),
+  .uart_rx(uart_rx),
+  .uart_tx(uart_tx),
+  .read_command(read_command)
+);
+
+hp12597a ptr (
+  .clk(clk),
+  .crs(crs),
+
+  .prl(prl12),
+  .flgl(flgl11),
+  .sfc(sfc),
   .irql(irq10),
   .clf(clf),
   .ien(Interrupt_System_Enable),
@@ -200,65 +253,12 @@ hp12531c serial (
   .ioi(ioi),
   .sfs(sfs),
 
-  .irqh(irqh_dummy1),
-  .scl_h(1'b0),
-  .scm_h(1'b0),
-
-  .iob_out(iob_out),
-  .iob_in(iob_in10),
-
-  .sir(sir),
-  .enf(enf),
-  .flgh(flgh_dummy1),
-
-  .run(RUN),
-
-  .edt(edt),
-  .pon(pon),
-  .bioo_n(1'b0),
-  .sfsb_or_bioi_n(1'b0),
-  .uart_rx(uart_rx),
-  .uart_tx(uart_tx),
-  .read_command(read_command)
-);
-
-hp12597a ptr (
-  .clk(clk),
-  .crs(crs),
-
-  .prl(prl12),
-  .flgl(flgl11),
-  .sfc(sfc),
-  .irql(irq11),
-  .clf(clf),
-  .ien(Interrupt_System_Enable),
-  .stf(stf),
-  .iak(iak),
-  .t3(t3),
-  .skf(skf11),
-
-  .scm_l(msc1),
-  .scl_l(lsc1),
-
-  .iog(iog),
-  .popio(popio | preset_btn),
-
-  .iob16_or_bios_n(1'b0),
-
-  .srq(srq11),
-  .ioo(ioo),
-  .clc(clc),
-  .stc(stc),
-  .prh(prl11),
-  .ioi(ioi),
-  .sfs(sfs),
-
   .irqh(irqh_dummy2),
   .scl_h(1'b0),
   .scm_h(1'b0),
 
   .iob_out(iob_out),
-  .iob_in(iob_in11),
+  .iob_in(iob_in10),
 
   .sir(sir),
   .enf(enf),
@@ -307,7 +307,7 @@ hp12566b dmatest (
   .ioo(ioo),
   .clc(clc),
   .stc(stc),
-  .prh(prl12),
+  .prh(prl_out_from_16),
   .ioi(ioi),
   .sfs(sfs),
 
@@ -366,36 +366,36 @@ hp13210a disk7900 (
   .prl(prl_out_from_14),
   .flgl(flgl13),
   .sfc(sfc),
-  .irql(irq13),
+  .irql(irq22),
   .clf(clf),
   .ien(Interrupt_System_Enable),
   .stf(stf),
   .iak(iak),
   .t3(t3),
-  .skf(skf13),
+  .skf(skf22),
 
-  .scm_l(msc1),
-  .scl_l(lsc3),
+  .scm_l(msc2),
+  .scl_l(lsc2),
 
   .iog(iog),
   .popio(popio | preset_btn),
 
   .iob16_or_bios_n(1'b0),
 
-  .srq(srq13),
+  .srq(srq22),
   .ioo(ioo),
   .clc(clc),
   .stc(stc),
-  .prh(prl_out_from_12),
+  .prh(prl),
   .ioi(ioi),
   .sfs(sfs),
 
-  .irqh(irq14),
-  .scl_h(msc1),
-  .scm_h(lsc4),
+  .irqh(irq23),
+  .scl_h(msc2),
+  .scm_h(lsc3),
 
   .iob_out(iob_out),
-  .iob_in(iob_in13),
+  .iob_in(iob_in22),
 
   .sir(sir),
   .enf(enf),
@@ -424,27 +424,27 @@ hp12597a ptp (
   .prl(prl_out_from_15),
   .flgl(flgl15),
   .sfc(sfc),
-  .irql(irq15),
+  .irql(irq17),
   .clf(clf),
   .ien(Interrupt_System_Enable),
   .stf(stf),
   .iak(iak),
   .t3(t3),
-  .skf(skf15),
+  .skf(skf17),
 
   .scm_l(msc1),
-  .scl_l(lsc5),
+  .scl_l(lsc7),
 
   .iog(iog),
   .popio(popio | preset_btn),
 
   .iob16_or_bios_n(1'b0),
 
-  .srq(srq15),
+  .srq(srq17),
   .ioo(ioo),
   .clc(clc),
   .stc(stc),
-  .prh(prl_out_from_14),
+  .prh(prl11),
   .ioi(ioi),
   .sfs(sfs),
 
@@ -453,7 +453,7 @@ hp12597a ptp (
   .scm_h(1'b0),
 
   .iob_out(iob_out),
-  .iob_in(iob_in15),
+  .iob_in(iob_in17),
 
   .sir(sir),
   .enf(enf),
@@ -481,27 +481,27 @@ hp12539c tbg (
   .prl(prl_out_from_16),
   .flgl(flgl16),
   .sfc(sfc),
-  .irql(irq16),
+  .irql(irq11),
   .clf(clf),
   .ien(Interrupt_System_Enable),
   .stf(stf),
   .iak(iak),
   .t3(t3),
-  .skf(skf16),
+  .skf(skf11),
 
   .scm_l(msc1),
-  .scl_l(lsc6),
+  .scl_l(lsc1),
 
   .iog(iog),
   .popio(popio | preset_btn),
 
   .iob16_or_bios_n(1'b0),
 
-  .srq(srq16),
+  .srq(srq11),
   .ioo(ioo),
   .clc(clc),
   .stc(stc),
-  .prh(prl_out_from_15),
+  .prh(prl12),
   .ioi(ioi),
   .sfs(sfs),
 
@@ -510,7 +510,7 @@ hp12539c tbg (
   .scm_h(1'b0),
 
   .iob_out(iob_out),
-  .iob_in(iob_in16),
+  .iob_in(iob_in11),
 
   .sir(sir),
   .enf(enf),
@@ -554,7 +554,7 @@ hp12845a lpt (
   .ioo(ioo),
   .clc(clc),
   .stc(stc),
-  .prh(prl_out_from_16),
+  .prh(prl_out_from_15),
   .ioi(ioi),
   .sfs(sfs),
 
@@ -733,7 +733,7 @@ hp12845a lpt (
     skip_dma6 = (sfc & (sc == 6'o06) & ~dma_1_flag_ff) | (sfs & (sc == 6'o06) & dma_1_flag_ff);
     skip_dma7 = (sfc & (sc == 6'o07) & ~dma_2_flag_ff) | (sfs & (sc == 6'o07) & dma_2_flag_ff);
     skip_intp = sfc_intp | sfs_intp;
-    skip_io = skf10 | skf11 | skf12 | skf13 | skf15 | skf16 | | skf20 |skip_intp | skip_dma6 | skip_dma7;
+    skip_io = skf10 | skf11 | skf12 | skf16 | skf17| skf20 | skf22 | skip_intp | skip_dma6 | skip_dma7;
     clf = ((clear_flag & normal_instruction_execution) | dma_clf) & state45;
     stf = set_flag & normal_instruction_execution & state45;
     stc = ((set_control & normal_instruction_execution)| dma_stc) & state34;
@@ -742,16 +742,18 @@ hp12845a lpt (
     sir = (tstate == T5);
     enf = (tstate == T2);
     crs = clc & msc0 & lsc0 | popio;
-    interrupt = (irq10 | irq11 | irq12 | irq13 | irq14 | irq15 | irq16 | irq20| dma_1_irq_ff | dma_2_irq_ff)  & Interrupt_System_Enable & Interrupt_Control;
+    interrupt = (irq10 | irq11 | irq12  | irq16 | irq17 | irq20| irq22 | irq23 | dma_1_irq_ff | dma_2_irq_ff)  & Interrupt_System_Enable & Interrupt_Control;
     if ((M >= 15'o77700) && loader_protected_switch) begin
       unprotected = 1'b0;
     end else begin
       unprotected = 1'b1;
     end
+    srq13 = 1'b0;
     srq14 = 1'b0;
-    srq17 = 1'b0;
+    srq15 = 1'b0;
+    //srq17 = 1'b0;
     srq21 = 1'b0;
-    srq22 = 1'b0;
+    //srq22 = 1'b0;
     srq23 = 1'b0;
     srq24 = 1'b0; 
     srq25 = 1'b0;
@@ -774,7 +776,7 @@ always @* begin
         endcase
     end
     else begin
-      iob_in_internal = iob_in10 | iob_in11 | iob_in12 | iob_in13 | iob_in15 | iob_in16 | iob_in20;
+      iob_in_internal = iob_in10 | iob_in11 | iob_in12 | iob_in16 | iob_in17 | iob_in20 |iob_in22;
     end
 end
 
@@ -1832,22 +1834,21 @@ endfunction
                   else if (irq12) begin
                     M <= 15'o000012;                                    
                   end
-                  else if (irq13) begin
-                    M <= 15'o000013;                                    
-                  end
-                  else if (irq14) begin
-                    M <= 15'o000014;                                    
-                  end 
-                  else if (irq15) begin
-                    M <= 15'o000015;                                    
-                  end 
                   else if (irq16) begin
                     M <= 15'o000016;                                    
-                  end 
+                  end
+                  else if (irq17) begin
+                    M <= 15'o000017;                                    
+                  end                   
                   else if (irq20) begin
                     M <= 15'o000020;                                    
                   end 
-
+                  else if (irq22) begin
+                    M <= 15'o000022;                                    
+                  end                                    
+                  else if (irq23) begin
+                    M <= 15'o000023;                                    
+                  end    
                 end
               end
 
