@@ -29,8 +29,8 @@ fi
 # Running Semiconductor Memory diagnostic - diag failed
 #./build_hp2116.sh diagnostics/24395-16001_DSN102104_SEMICONDUCTOR_MEMORY_21MX.abin 102104 NO $TRACE
 
-# Running EAU Instruction Group diagnostic - diag failed - EAU not implemented
-#./build_hp2116.sh diagnostics/24319-16001_DSN101004_EAU_INSTRUCTION_GROUP.abin 101004 NO $TRACE
+# Running EAU Instruction Group diagnostic 
+./build_hp2116.sh diagnostics/24319-16001_DSN101004_EAU_INSTRUCTION_GROUP.abin 101004 NO $TRACE
 
 # Running Floating Point Instruction Group diagnostic - diag failed - not implemented
 #./build_hp2116.sh diagnostics/24320-16001_DSN101207_FLOATING_POINT_INSTRUCTION_GROUP.abin 101207 NO $TRACE
