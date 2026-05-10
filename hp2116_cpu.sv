@@ -162,10 +162,14 @@ module hp2116_cpu #(
   logic eau_ro;
   logic eau_rt;
   logic eau_mem_ref;
-
+  logic eau_divide_by_zero;
+  logic extrabit_TR;
+  logic extrabit_A;
+  logic extrabit_BA;
 
   logic divisor_sign;
   logic dividend_sign;
+  logic skip_to_end;
   //--------------------------------------------------------------------------
   // T-state enum: T0..T7
   //--------------------------------------------------------------------------
@@ -182,28 +186,28 @@ typedef enum logic [2:0] {
 
 
 typedef enum logic [4:0] {
-  EAU_STEP0 = 5'o02,
-  EAU_STEP1 = 5'o03,
-  EAU_STEP2 = 5'o04,
-  EAU_STEP3 = 5'o05,
-  EAU_STEP4 = 5'o06,
-  EAU_STEP5 = 5'o07,
+  EAU_STEP0 = 5'o03,
+  EAU_STEP1 = 5'o02,
+  EAU_STEP2 = 5'o06,
+  EAU_STEP3 = 5'o07,
+  EAU_STEP4 = 5'o05,
+  EAU_STEP5 = 5'o04,
   EAU_STEP6 = 5'o10,
   EAU_STEP7 = 5'o11,
-  EAU_STEP8 = 5'o12,
-  EAU_STEP9 = 5'o13,
-  EAU_STEP10 = 5'o14,
-  EAU_STEP11 = 5'o15,
-  EAU_STEP12 = 5'o16,
-  EAU_STEP13 = 5'o17,
+  EAU_STEP8 = 5'o13,
+  EAU_STEP9 = 5'o12,
+  EAU_STEP10 = 5'o16,
+  EAU_STEP11 = 5'o17,
+  EAU_STEP12 = 5'o15,
+  EAU_STEP13 = 5'o14,
   EAU_STEP14 = 5'o20,
   EAU_STEP15 = 5'o21,
-  EAU_STEP16 = 5'o22,
-  EAU_STEP17 = 5'o23,
-  EAU_STEP18 = 5'o24,
-  EAU_STEP19 = 5'o25,
-  EAU_STEP20 = 5'o26,
-  EAU_STEP21 = 5'o27      
+  EAU_STEP16 = 5'o23,
+  EAU_STEP17 = 5'o22,
+  EAU_STEP18 = 5'o26,
+  EAU_STEP19 = 5'o27,
+  EAU_STEP20 = 5'o25,
+  EAU_STEP21 = 5'o24      
 } eau_step_t;
 
   eau_step_t eau_step;
@@ -830,13 +834,14 @@ end
       input logic [3:0] steps
   );
       logic [31:0] temp;
+      logic overflow;
       int count;
 
       begin
           // Work on a temporary value first.
           // This avoids many overlapping non-blocking assignments.
           temp = {B, A};
-
+          overflow = 1'b0;
           // In many HP-style encodings, 0 means 16 shifts.
           if (steps == 4'd0)
               count = 16;
@@ -851,13 +856,17 @@ end
               end else begin
                   // Arithmetic left shift:
                   // shift left, fill low bit with zero.
-                  // Sign bit naturally changes if overflow occurs.
-                  temp = {temp[30:0], 1'b0};
+                  if ((temp[31] & ~temp[30]) | (~temp[31] & temp[30])) begin
+                    overflow = 1'b1;
+                  end                  
+                  temp = {temp[31],temp[29:0], 1'b0};
+
               end
           end
 
           // Write final result back to B:A
           {B, A} <= temp;
+          OVERFLOW <= overflow;
       end
   endtask
 
@@ -1570,190 +1579,196 @@ endfunction
                   end
 
                   T3: begin
-
-                    if(set_interrupt_system_enable) begin
-                      Interrupt_System_Enable <= 1'b1;
-                    end
-                    if (set_overflow) begin
-                      OVERFLOW <= 1'b1;
-                    end
-                    if (is_mac_instr & TR[4] & TR[11]) begin
-                      // Arithmetic shift TR[9] is direction
-                      do_eau_arithmetic_shift(TR[9],TR[3:0]);
-                    end
-                    if (is_mac_instr & TR[5] & TR[11]) begin
-                      // Logic shift TR[9] is direction
-                      do_eau_logic_shift(TR[9],TR[3:0]);
-                    end
-                    if (is_mac_instr & TR[6] & TR[11]) begin
-                      // Rotate TR[9] is direction
-                      do_eau_rotate(TR[9],TR[3:0]);
-                    end                    
-                    if (is_srg_instr & TR[9]) begin
-                      do_shift_rotate(TR[8:6],1'b1);
-                    end
-                    if  (is_srg_instr & ~TR[9] & ((TR[8:6] == 3'o5) || (TR[8:6] == 3'o6))) begin
-                      do_shift_rotate(TR[8:6],1'b0);
-                    end
-                    if (is_asg_instr) begin
-                      if (TR[11] == 1'b0)
-                        unique case (TR[9:8])
-                          2'o0:begin
-                            // No operation
-                          end
-                          2'o1: // Clear
-                            A<=16'o000000;
-                          2'o2: // Complement
-                            A<=~A;
-                          2'o3: // Set
-                            A<=16'o177777;
-                        endcase
-
-                      else
-                        unique case (TR[9:8])
-                          2'o0:begin
-                            // No operation
-                          end
-                          2'o1: // Clear
-                            B<=16'o000000;
-                          2'o2: // Complement
-                            B<=~B;
-                          2'o3: // Set
-                            B<=16'o177777;
-                        endcase
-                      if (TR[5]) begin
-                        if (TR[0]==1'b0 & EXTEND == 1'b0)
-                          CARRY <= 1'b1;
-                        else if (TR[0] == 1'b1 & EXTEND == 1'b1)
-                          CARRY <= 1'b1;
+                    if (~eau_mem_ref) begin
+                      if(set_interrupt_system_enable) begin
+                        Interrupt_System_Enable <= 1'b1;
                       end
-                      unique case (TR[7:6])
-                        2'b00:begin
-                          // no operation
+                      if (set_overflow) begin
+                        OVERFLOW <= 1'b1;
+                      end
+                      if (is_mac_instr & TR[4] & ~TR[11]) begin
+                        // Arithmetic shift TR[9] is direction
+                        do_eau_arithmetic_shift(TR[9],TR[3:0]);
+                      end
+                      if (is_mac_instr & TR[5] & ~TR[11]) begin
+                        // Logic shift TR[9] is direction
+                        do_eau_logic_shift(TR[9],TR[3:0]);
+                      end
+                      if (is_mac_instr & TR[6] & ~TR[11]) begin
+                        // Rotate TR[9] is direction
+                        do_eau_rotate(TR[9],TR[3:0]);
+                      end                    
+                      if (is_srg_instr & TR[9]) begin
+                        do_shift_rotate(TR[8:6],1'b1);
+                      end
+                      if  (is_srg_instr & ~TR[9] & ((TR[8:6] == 3'o5) || (TR[8:6] == 3'o6))) begin
+                        do_shift_rotate(TR[8:6],1'b0);
+                      end
+                      if (is_asg_instr) begin
+                        if (TR[11] == 1'b0)
+                          unique case (TR[9:8])
+                            2'o0:begin
+                              // No operation
+                            end
+                            2'o1: // Clear
+                              A<=16'o000000;
+                            2'o2: // Complement
+                              A<=~A;
+                            2'o3: // Set
+                              A<=16'o177777;
+                          endcase
+
+                        else
+                          unique case (TR[9:8])
+                            2'o0:begin
+                              // No operation
+                            end
+                            2'o1: // Clear
+                              B<=16'o000000;
+                            2'o2: // Complement
+                              B<=~B;
+                            2'o3: // Set
+                              B<=16'o177777;
+                          endcase
+                        if (TR[5]) begin
+                          if (TR[0]==1'b0 & EXTEND == 1'b0)
+                            CARRY <= 1'b1;
+                          else if (TR[0] == 1'b1 & EXTEND == 1'b1)
+                            CARRY <= 1'b1;
                         end
-                        2'b01:
-                          EXTEND <= 1'b0;
-                        2'b10:
-                          EXTEND <= ~EXTEND;
-                        2'b11:
-                          EXTEND <= 1'b1;
-                      endcase
+                        unique case (TR[7:6])
+                          2'b00:begin
+                            // no operation
+                          end
+                          2'b01:
+                            EXTEND <= 1'b0;
+                          2'b10:
+                            EXTEND <= ~EXTEND;
+                          2'b11:
+                            EXTEND <= 1'b1;
+                        endcase
+                      end
                     end
                   end
 
                   T4: begin
-                    if (is_asg_instr) begin
-                      if (TR[11] == 1'b0) begin
-                        if (((~A[15] & TR[4] | ~A[0] & TR[3]) & ~TR[0]) | ((~(~A[15] & TR[4] | ~A[0] & TR[3])) & TR[0] & (TR[3] | TR[4]) ))
-                          CARRY <= 1'b1;
-                      end
-                      else begin
-                        if (((~B[15] & TR[4] | ~B[0] & TR[3]) & ~TR[0]) | ((~(~B[15] & TR[4] | ~B[0] & TR[3])) & TR[0] & (TR[3] | TR[4])))
-                          CARRY <= 1'b1;
-                      end
-
-                      if (TR[2]) begin
+                    if (~eau_mem_ref) begin
+                      if (is_asg_instr) begin
                         if (TR[11] == 1'b0) begin
-                          if (A == 16'o177777) begin
-                            EXTEND <= 1'b1;
-                          end
-                          if (A == 16'o077777) begin
-                            OVERFLOW <= 1'b1;
-                          end
-                          A <= A + 16'o000001;
+                          if (((~A[15] & TR[4] | ~A[0] & TR[3]) & ~TR[0]) | ((~(~A[15] & TR[4] | ~A[0] & TR[3])) & TR[0] & (TR[3] | TR[4]) ))
+                            CARRY <= 1'b1;
                         end
                         else begin
-                          if (B == 16'o177777) begin
-                            EXTEND <= 1'b1;
-                          end
-                          if (B == 16'o077777) begin
-                            OVERFLOW <= 1'b1;
-                          end
-                          B <= B + 16'o000001;
-                        end
-
-                      end
-
-                    end
-                    if (skip_io) begin
-                      CARRY <= 1'b1;
-                    end
-                    if (skip_on_overflow) begin
-                      CARRY <= 1'b1;
-                    end
-                    if(clear_interrupt_control) begin
-                      Interrupt_Control <= 1'b0;
-                    end
-                    if(clear_interrupt_system_enable) begin
-                      Interrupt_System_Enable <= 1'b0;
-                    end
-                    if (clear_overflow) begin
-                      OVERFLOW <= 1'b0;
-                    end
-                    if(is_srg_instr) begin
-                      if (TR[5]) EXTEND <= 1'b0;
-                      if (TR[3]) begin
-                        if (TR[11] == 1'b0) begin
-                          if (A[0] == 1'b0)
-                            CARRY <= 1'b1;
-                        end else begin
-                          if (B[0] == 1'b0)
+                          if (((~B[15] & TR[4] | ~B[0] & TR[3]) & ~TR[0]) | ((~(~B[15] & TR[4] | ~B[0] & TR[3])) & TR[0] & (TR[3] | TR[4])))
                             CARRY <= 1'b1;
                         end
+
+                        if (TR[2]) begin
+                          if (TR[11] == 1'b0) begin
+                            if (A == 16'o177777) begin
+                              EXTEND <= 1'b1;
+                            end
+                            if (A == 16'o077777) begin
+                              OVERFLOW <= 1'b1;
+                            end
+                            A <= A + 16'o000001;
+                          end
+                          else begin
+                            if (B == 16'o177777) begin
+                              EXTEND <= 1'b1;
+                            end
+                            if (B == 16'o077777) begin
+                              OVERFLOW <= 1'b1;
+                            end
+                            B <= B + 16'o000001;
+                          end
+
+                        end
+          
+
                       end
-                    end
+                      if (skip_io) begin
+                        CARRY <= 1'b1;
+                      end
+                      if (skip_on_overflow) begin
+                        CARRY <= 1'b1;
+                      end
+                      if(clear_interrupt_control) begin
+                        Interrupt_Control <= 1'b0;
+                      end
+                      if(clear_interrupt_system_enable) begin
+                        Interrupt_System_Enable <= 1'b0;
+                      end
+                      if (clear_overflow) begin
+                        OVERFLOW <= 1'b0;
+                      end
+                      if(is_srg_instr) begin
+                        if (TR[5]) EXTEND <= 1'b0;
+                        if (TR[3]) begin
+                          if (TR[11] == 1'b0) begin
+                            if (A[0] == 1'b0)
+                              CARRY <= 1'b1;
+                          end else begin
+                            if (B[0] == 1'b0)
+                              CARRY <= 1'b1;
+                          end
+                        end
+                      end
+                    end  
                   end
 
                   T5: begin
-                    if (is_srg_instr & TR[4]) begin
-                      do_shift_rotate(TR[2:0], 1'b1);
-                    end
-                    if  (is_srg_instr & ~TR[4] & ((TR[2:0] == 3'o5) || (TR[2:0] == 3'o6))) begin
-                      do_shift_rotate(TR[2:0],1'b0);
-                    end
-                    if (is_asg_instr & TR[1]) begin
-                        if (TR[11] == 1'b0) begin
-                          if (A == 16'o000000 & ~TR[0] || A!=16'o000000 & TR[0])
-                            CARRY <= 1'b1;
-                        end
-                        else begin
-                          if (B == 16'o000000 & ~TR[0] || B != 16'o000000 & TR[0])
-                            CARRY <= 1'b1;
-                        end
-                    end
-                    if (is_asg_instr & ~TR[1] & ~TR[3] & ~TR[4] & ~TR[5] & TR[0]) begin // unconditional skip
-                      CARRY <= 1'b1;
-                    end
-                    if (is_io_instr) begin
-                      case (TR[8:6])
-                        3'o4: begin // MIA
-                          if (IR[1] == 1'b0) begin
-                            A <= A | iob_in_internal;
+                    if (~eau_mem_ref) begin
+                      if (is_srg_instr & TR[4]) begin
+                        do_shift_rotate(TR[2:0], 1'b1);
+                      end
+                      if  (is_srg_instr & ~TR[4] & ((TR[2:0] == 3'o5) || (TR[2:0] == 3'o6))) begin
+                        do_shift_rotate(TR[2:0],1'b0);
+                      end
+                      if (is_asg_instr & TR[1]) begin
+                          if (TR[11] == 1'b0) begin
+                            if (A == 16'o000000 & ~TR[0] || A!=16'o000000 & TR[0])
+                              CARRY <= 1'b1;
                           end
                           else begin
-                            B <= B | iob_in_internal;
+                            if (B == 16'o000000 & ~TR[0] || B != 16'o000000 & TR[0])
+                              CARRY <= 1'b1;
                           end
-                        end
-                        3'o5: begin //LIA
-                          if (IR[1] == 1'b0) begin
-                            A <= iob_in_internal;
+                      end
+                      if (is_asg_instr & ~TR[1] & ~TR[3] & ~TR[4] & ~TR[5] & TR[0]) begin // unconditional skip
+                        CARRY <= 1'b1;
+                      end
+                      if (is_io_instr) begin
+                        case (TR[8:6])
+                          3'o4: begin // MIA
+                            if (IR[1] == 1'b0) begin
+                              A <= A | iob_in_internal;
+                            end
+                            else begin
+                              B <= B | iob_in_internal;
+                            end
                           end
-                          else begin
-                            B <= iob_in_internal;
+                          3'o5: begin //LIA
+                            if (IR[1] == 1'b0) begin
+                              A <= iob_in_internal;
+                            end
+                            else begin
+                              B <= iob_in_internal;
+                            end
                           end
+                          default: begin
+                          end
+                        endcase
+                      end
+                      case (TR[5:0])
+                        6'o01: begin
+                          //sw <= iob_out;
                         end
                         default: begin
+                          
                         end
                       endcase
                     end
-                    case (TR[5:0])
-                      6'o01: begin
-                        //sw <= iob_out;
-                      end
-                      default: begin
-                        
-                      end
-                    endcase
                   end
 
                   T7: begin
@@ -1865,15 +1880,19 @@ endfunction
                 if (eau_mpy) begin
                   case (eau_step)
                     EAU_STEP0: begin
-                        divisor_sign <= TR[15];
-                        dividend_sign <= A[15];
+                        OVERFLOW <= 1'b0;  // reset overflow now - set it later
+                        if ((TR != 16'o000000) && (A != 16'o000000)) begin 
+                          divisor_sign <= TR[15];
+                          dividend_sign <= A[15];
+                        end
                         if (TR[15]) begin
-                            TR[15] <= 1'b0;
-                            TR[14:0] <= (~TR[14:0]) + 15'd1;
+                            { extrabit_TR, TR} <= ~({ TR[15], TR }) + 17'd1;
+                        end 
+                        else begin
+                          extrabit_TR <= 1'b0;
                         end
                         if (A[15]) begin
-                            A[15] <= 1'b0;
-                            A[14:0] <= (~A[14:0]) + 15'd1;
+                            { extrabit_A, A } <= (~{A[15], A}) + 17'd1;
                         end
                     end
 
@@ -1884,123 +1903,133 @@ endfunction
                         else begin
                             B <= 16'd0;
                         end
-                        A[0] <= 1'b0;
+                        A[0] <= extrabit_TR;
                     end
 
                     EAU_STEP2: begin
                         if (A[1]) begin
                             {A[0],B} <= {1'b0, B} + {TR, 1'b0};
-                            A[1] <= 1'b0;    
+                            A[1] <= extrabit_TR;    
                         end 
                     end
                     EAU_STEP3: begin
                         if (A[2]) begin
                             {A[1:0],B} <= {1'b0, A[0], B} + {TR, 2'b0}; 
-                            A[2] <= 1'b0;   
+                            A[2] <= extrabit_TR;   
                         end 
                     end
                     EAU_STEP4: begin
                         if (A[3]) begin
                             {A[2:0],B} <= {1'b0, A[1:0], B} + {TR, 3'b0}; 
-                            A[3] <= 1'b0;   
+                            A[3] <= extrabit_TR;   
                         end 
                     end
 
                     EAU_STEP5: begin
                         if (A[4]) begin
                             {A[3:0],B} <= {1'b0, A[2:0], B} + {TR, 4'b0}; 
-                            A[4] <= 1'b0;   
+                            A[4] <= extrabit_TR;   
                         end 
                     end
 
                     EAU_STEP6: begin
                         if (A[5]) begin
                             {A[4:0],B} <= {1'b0, A[3:0], B} + {TR, 5'b0};    
-                            A[5] <= 1'b0;
+                            A[5] <= extrabit_TR;
                         end 
                     end
 
                     EAU_STEP7: begin
                         if (A[6]) begin
                             {A[5:0],B} <= {1'b0, A[4:0], B} + {TR, 6'b0};    
-                            A[6] <= 1'b0;
+                            A[6] <= extrabit_TR;
                         end 
                     end
 
                     EAU_STEP8: begin
                         if (A[7]) begin
                             {A[6:0],B} <= {1'b0, A[5:0], B} + {TR, 7'b0};   
-                            A[7] <= 1'b0; 
+                            A[7] <= extrabit_TR; 
                         end 
                     end
 
                     EAU_STEP9: begin
                         if (A[8]) begin
                             {A[7:0],B} <= {1'b0, A[6:0], B} + {TR, 8'b0};   
-                            A[8] <= 1'b0; 
+                            A[8] <= extrabit_TR; 
                         end 
                     end
 
                     EAU_STEP10: begin
                         if (A[9]) begin
                             {A[8:0],B} <= {1'b0, A[7:0], B} + {TR, 9'b0};   
-                            A[9] <= 1'b0; 
+                            A[9] <= extrabit_TR; 
                         end 
                     end
 
                     EAU_STEP11: begin
                         if (A[10]) begin
                             {A[9:0],B} <= {1'b0, A[8:0], B} + {TR, 10'b0};   
-                            A[10] <= 1'b0; 
+                            A[10] <= extrabit_TR; 
                         end 
                     end
 
                     EAU_STEP12: begin
                         if (A[11]) begin
                             {A[10:0],B} <= {1'b0, A[9:0], B} + {TR, 11'b0};    
-                            A[11] <= 1'b0;
+                            A[11] <= extrabit_TR;
                         end 
                     end
 
                     EAU_STEP13: begin
                         if (A[12]) begin
                             {A[11:0],B} <= {1'b0, A[10:0], B} + {TR, 12'b0};
-                            A[12] <= 1'b0;    
+                            A[12] <= extrabit_TR;    
                         end 
                     end
 
                     EAU_STEP14: begin
                         if (A[13]) begin
                             {A[12:0],B} <= {1'b0, A[11:0], B} + {TR, 13'b0};    
-                            A[13] <= 1'b0;
+                            A[13] <= extrabit_TR;
                         end 
                     end
 
                     EAU_STEP15: begin
                         if (A[14]) begin
                             {A[13:0],B} <= {1'b0, A[12:0], B} + {TR, 14'b0};  
-                            A[14] <= 1'b0;  
+                            A[14] <= extrabit_TR;  
                         end 
                     end
 
                     EAU_STEP16: begin
-                        if ((divisor_sign & dividend_sign) | (~divisor_sign & ~dividend_sign)) begin
-                            A[15] <= 1'b0;
-                        end else begin
-                            A[15] <= 1'b1;
-                            { A[14:0],B }  <= (~{A[14:0],B}) + 31'd1;
-                        end
+                        if (A[15]) begin
+                            {A[14:0],B} <= {1'b0, A[13:0], B} + {TR, 15'b0};  
+                            A[15] <= extrabit_TR;  
+                        end 
                     end
 
                     EAU_STEP17: begin
+                        if (extrabit_A) begin
+                            {A,B} <= {1'b0, A[14:0], B} + {TR, 16'b0};  
+                            A[15] <= extrabit_TR;  
+                        end 
+                    end                    
+
+                    EAU_STEP18: begin
+                        if ((divisor_sign & dividend_sign) | (~divisor_sign & ~dividend_sign)) begin
+                            //A[15] <= 1'b0;
+                        end else begin
+                            { A,B }  <= ~{A,B} + 32'd1;
+                        end
+                    end
+
+                    EAU_STEP19: begin
                         A <= B;  // Swap around A and B  
                         B <= A;
-                        eau_mpy <= 1'b0; // Go back to normal execution
                     end
 
                     default: begin
-                      $display("Error in EAU - halting");
-                      RUN   <= 1'b0;
                     end
                   endcase
                 end
@@ -2010,176 +2039,256 @@ endfunction
                     EAU_STEP0: begin
                         divisor_sign <= TR[15];
                         dividend_sign <= B[15];
+                        OVERFLOW <= 1'b0;
+                        if (TR == 16'o000000) begin
+                          eau_divide_by_zero <= 1'b1;
+                          OVERFLOW <= 1'b1;
+                        end
+                        else begin 
+                          eau_divide_by_zero <= 1'b0;
+                        end
                         if (TR[15]) begin
-                            TR[15] <= 1'b0;
-                            TR[14:0] <= (~TR[14:0]) + 15'd1;
+                            TR[15:0] <= (~TR[15:0]) + 16'd1;
                         end
                         if (B[15]) begin
-                            B[15] <= 1'b0;
-                            {B[14:0], A} <= (~{B[14:0], A}) + 31'd1;
+                            {extrabit_BA, B, A} <= (~{B[15], B, A}) + 33'd1;
+                            if ({B[14:0],A} == 31'd0) begin
+                              OVERFLOW <= 1'b1;  
+                            end
                         end
                     end
-
+                  
                     EAU_STEP1: begin
-                        $display("BA=%016b%016b TR=%016b BA=%d", B, A, TR, {B,A});
-                        if ({B[13:0], A} >= {TR, 14'b0}) begin
-                            {B[13:0], A} <= {B[13:0], A} - {TR, 14'b0};
-                            B[14] <= 1'b1;
-                        end else begin
-                            B[14] <= 1'b0;
+                        if (B >= TR) begin 
+                          OVERFLOW <= 1'b1; 
+                          skip_to_end <= 1'b1;   
                         end
-                    end
-
+                        else begin
+                          skip_to_end <= 1'b0;
+                          if (~eau_divide_by_zero & ~skip_to_end) begin
+                            if ({B, A} >= {TR, 16'b0}) begin                              
+                                {B, A} <= {B, A} - {TR, 16'b0};
+                                extrabit_BA <= 1'b1;
+                            end else begin
+                                extrabit_BA <= 1'b0;
+                            end
+                          end
+                        end 
+                    end                 
                     EAU_STEP2: begin
-                        if ({B[12:0], A} >= {TR, 13'b0}) begin
-                            {B[12:0], A} <= {B[12:0], A} - {TR, 13'b0};
-                            B[13] <= 1'b1;
-                        end else begin
-                            B[13] <= 1'b0;
+                        if (~eau_divide_by_zero & ~skip_to_end) begin
+                          if ({B[14:0], A} >= {TR, 15'b0}) begin
+                              {B[14:0], A} <= {B[14:0], A} - {TR, 15'b0};
+                              B[15] <= 1'b1;
+                          end else begin
+                              B[15] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP3: begin
-                        if ({B[11:0], A} >= {TR, 12'b0}) begin
-                            {B[11:0], A} <= {B[11:0], A} - {TR, 12'b0};
-                            B[12] <= 1'b1;
-                        end else begin
-                            B[12] <= 1'b0;
+                        if (~eau_divide_by_zero  & ~skip_to_end) begin
+                          if ({B[13:0], A} >= {TR, 14'b0}) begin
+                              {B[13:0], A} <= {B[13:0], A} - {TR, 14'b0};
+                              B[14] <= 1'b1;
+                          end else begin
+                              B[14] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP4: begin
-                        if ({B[10:0], A} >= {TR, 11'b0}) begin
-                            {B[10:0], A} <= {B[10:0], A} - {TR, 11'b0};
-                            B[11] <= 1'b1;
-                        end else begin
-                            B[11] <= 1'b0;
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[12:0], A} >= {TR, 13'b0}) begin
+                              {B[12:0], A} <= {B[12:0], A} - {TR, 13'b0};
+                              B[13] <= 1'b1;
+                          end else begin
+                              B[13] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP5: begin
-                        if ({B[9:0], A} >= {TR, 10'b0}) begin
-                            {B[9:0], A} <= {B[9:0], A} - {TR, 10'b0};
-                            B[10] <= 1'b1;
-                        end else begin
-                            B[10] <= 1'b0;
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[11:0], A} >= {TR, 12'b0}) begin
+                              {B[11:0], A} <= {B[11:0], A} - {TR, 12'b0};
+                              B[12] <= 1'b1;
+                          end else begin
+                              B[12] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP6: begin
-                        if ({B[8:0], A} >= {TR, 9'b0}) begin
-                            {B[8:0], A} <= {B[8:0], A} - {TR, 9'b0};
-                            B[9] <= 1'b1;
-                        end else begin
-                            B[9] <= 1'b0;
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[10:0], A} >= {TR, 11'b0}) begin
+                              {B[10:0], A} <= {B[10:0], A} - {TR, 11'b0};
+                              B[11] <= 1'b1;
+                          end else begin
+                              B[11] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP7: begin
-                        if ({B[7:0], A} >= {TR, 8'b0}) begin
-                            {B[7:0], A} <= {B[7:0], A} - {TR, 8'b0};
-                            B[8] <= 1'b1;
-                        end else begin
-                            B[8] <= 1'b0;
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[9:0], A} >= {TR, 10'b0}) begin
+                              {B[9:0], A} <= {B[9:0], A} - {TR, 10'b0};
+                              B[10] <= 1'b1;
+                          end else begin
+                              B[10] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP8: begin
-                        if ({B[6:0], A} >= {TR, 7'b0}) begin
-                            {B[6:0], A} <= {B[6:0], A} - {TR, 7'b0};
-                            B[7] <= 1'b1;
-                        end else begin
-                            B[7] <= 1'b0;
-                        end
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[8:0], A} >= {TR, 9'b0}) begin
+                              {B[8:0], A} <= {B[8:0], A} - {TR, 9'b0};
+                              B[9] <= 1'b1;
+                          end else begin
+                              B[9] <= 1'b0;
+                          end
+                        end 
                     end
 
                     EAU_STEP9: begin
-                        if ({B[5:0], A} >= {TR, 6'b0}) begin
-                            {B[5:0], A} <= {B[5:0], A} - {TR, 6'b0};
-                            B[6] <= 1'b1;
-                        end else begin
-                            B[6] <= 1'b0; // You had 1'b1 here, likely typo
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[7:0], A} >= {TR, 8'b0}) begin
+                              {B[7:0], A} <= {B[7:0], A} - {TR, 8'b0};
+                              B[8] <= 1'b1;
+                          end else begin
+                              B[8] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP10: begin
-                        if ({B[4:0], A} >= {TR, 5'b0}) begin
-                            {B[4:0], A} <= {B[4:0], A} - {TR, 5'b0};
-                            B[5] <= 1'b1;
-                        end else begin
-                            B[5] <= 1'b0;
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[6:0], A} >= {TR, 7'b0}) begin
+                              {B[6:0], A} <= {B[6:0], A} - {TR, 7'b0};
+                              B[7] <= 1'b1;
+                          end else begin
+                              B[7] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP11: begin
-                        if ({B[3:0], A} >= {TR, 4'b0}) begin
-                            {B[3:0], A} <= {B[3:0], A} - {TR, 4'b0};
-                            B[4] <= 1'b1;
-                        end else begin
-                            B[4] <= 1'b0; 
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[5:0], A} >= {TR, 6'b0}) begin
+                              {B[5:0], A} <= {B[5:0], A} - {TR, 6'b0};
+                              B[6] <= 1'b1;
+                          end else begin
+                              B[6] <= 1'b0; // You had 1'b1 here, likely typo
+                          end
                         end
                     end
 
                     EAU_STEP12: begin
-                        if ({B[2:0], A} >= {TR, 3'b0}) begin
-                            {B[2:0], A} <= {B[2:0], A} - {TR, 3'b0};
-                            B[3] <= 1'b1;
-                        end else begin
-                            B[3] <= 1'b0;
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[4:0], A} >= {TR, 5'b0}) begin
+                              {B[4:0], A} <= {B[4:0], A} - {TR, 5'b0};
+                              B[5] <= 1'b1;
+                          end else begin
+                              B[5] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP13: begin
-                        if ({B[1:0], A} >= {TR, 2'b0}) begin
-                            {B[1:0], A} <= {B[1:0], A} - {TR, 2'b0};
-                            B[2] <= 1'b1;
-                        end else begin
-                            B[2] <= 1'b0;
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[3:0], A} >= {TR, 4'b0}) begin
+                              {B[3:0], A} <= {B[3:0], A} - {TR, 4'b0};
+                              B[4] <= 1'b1;
+                          end else begin
+                              B[4] <= 1'b0; 
+                          end
                         end
                     end
 
                     EAU_STEP14: begin
-                        if ({B[0], A} >= {TR, 1'b0}) begin
-                            {B[0], A} <= {B[0], A} - {TR, 1'b0};
-                            B[1] <= 1'b1;
-                        end else begin
-                            B[1] <= 1'b0;
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[2:0], A} >= {TR, 3'b0}) begin
+                              {B[2:0], A} <= {B[2:0], A} - {TR, 3'b0};
+                              B[3] <= 1'b1;
+                          end else begin
+                              B[3] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP15: begin
-                        if (A >= TR) begin
-                            A <= A - TR;
-                            B[0] <= 1'b1;
-                        end else begin
-                            B[0] <= 1'b0;
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[1:0], A} >= {TR, 2'b0}) begin
+                              {B[1:0], A} <= {B[1:0], A} - {TR, 2'b0};
+                              B[2] <= 1'b1;
+                          end else begin
+                              B[2] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP16: begin
-                        if ((divisor_sign & dividend_sign) | (~divisor_sign & ~dividend_sign)) begin
-                            B[15] <= 1'b0;
-                        end else begin
-                            B[15] <= 1'b1;
-                            B[14:0] <= (~B[14:0]) + 15'd1;
-                        end
-                        if (dividend_sign & (A[14:0] != 15'd0)) begin
-                            A[15] <= 1'b1;
-                            A[14:0] <= (~A[14:0]) + 15'd1;                            
-                        end 
-                        else begin
-                            A[15] <= 1'b0;                            
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if ({B[0], A} >= {TR, 1'b0}) begin
+                              {B[0], A} <= {B[0], A} - {TR, 1'b0};
+                              B[1] <= 1'b1;
+                          end else begin
+                              B[1] <= 1'b0;
+                          end
                         end
                     end
 
                     EAU_STEP17: begin
-                        A <= B;  // Swap around A and B  
-                        B <= A;
-                        eau_div <= 1'b0; // Go back to normal execution
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          if (A >= TR) begin
+                              A <= A - TR;
+                              B[0] <= 1'b1;
+                          end else begin
+                              B[0] <= 1'b0;
+                          end
+                        end
+                    end
+
+                    EAU_STEP18: begin
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin
+                          
+                          if (B != 16'd0) begin
+                            logic [15:0] temp; 
+                            logic qs;
+                            qs = ~((divisor_sign & dividend_sign) | (~divisor_sign & ~dividend_sign));
+                            if (qs) begin
+                                temp = ~B + 16'd1;
+                                B <= temp;
+                            end 
+                            else begin
+                              temp = B;
+                            end 
+                            if (temp[15] ^ qs) begin
+                              OVERFLOW <= 1'b1; 
+                            end                          
+                          end
+
+                          if (dividend_sign & (A[14:0] != 15'd0)) begin
+                              A <= ~A + 16'd1;                            
+                          end 
+                          else begin
+                              A[15] <= 1'b0;                            
+                          end
+                        end
+                    end
+
+                    EAU_STEP19: begin
+                        if (~eau_divide_by_zero &  ~skip_to_end) begin  
+                          A <= B;  // Swap around A and B  
+                          B <= A;
+                        end 
+                        else begin
+                          OVERFLOW <= 1'b1;
+                        end
                     end
                     default: begin
-                      $display("Error in EAU - halting");
-                      RUN   <= 1'b0;
                     end
                   endcase
                 end 
@@ -2188,12 +2297,14 @@ endfunction
                     CARRY <= 1'b0;
                   end
                   T1: begin
-                    if (M== 15'o00000)
-                      TR <= A;
-                    else if (M== 15'o00001)
-                      TR <= B;
-                    else
-                      TR <= mem_rdata;
+                    if (~eau_mem_ref | eau_dld | ((eau_mpy | eau_div) & (eau_phase == 2'd0))) begin
+                      if (M== 15'o00000)
+                        TR <= A;
+                      else if (M== 15'o00001)
+                        TR <= B;
+                      else
+                        TR <= mem_rdata;
+                    end
                   end
                   T2: begin
                     if (eau_dst) begin
@@ -2201,8 +2312,7 @@ endfunction
                         TR <= A;                     
                       end
                       else if (eau_phase == 2'd1) begin
-                        TR <= B;
-                        eau_dst <= 1'b0;   
+                        TR <= B; 
                       end
 
                     end
@@ -2223,11 +2333,10 @@ endfunction
                       mem_we <= 1'b1;
                     end else if (eau_dld) begin
                       if (eau_phase == 2'd0) begin
-                        B <= TR;  
+                        A <= TR;  
                       end 
                       else if (eau_phase == 2'd1) begin
-                        A <= TR;
-                        eau_dld <= 1'b0;  
+                        B <= TR; 
                       end
                     end
                     else begin
@@ -2311,9 +2420,14 @@ endfunction
                     // JMP and HALT are handled earlier and should
                     // therefore not be handled here.
                     //phase <= PH_FETCH;
-                    if (eau_dst | eau_dld) begin
+                    if ((eau_dst | eau_dld) & (eau_phase == 2'd0)) begin
                       M <= M + 15'o00001;   
-                    end
+                    end else if ((eau_dst | eau_dld) & (eau_phase == 2'd1)) begin
+                      M <= P + 15'o00001; 
+                      P <= P + 15'o00001; 
+                    end else if ((eau_mpy | eau_div) & ((eau_phase == 2'd0) | (eau_phase == 2'd1))) begin
+                      // Do nothing
+                    end 
                     else if (op4 == 4'o07 || op4 == 4'o12 || op4 == 4'o13) begin
                       P <= P + 15'o00001 + { 14'o0000, CARRY};
                       M <= P + 15'o00001 + { 14'o0000, CARRY};
@@ -2402,14 +2516,21 @@ endfunction
                 end 
                 else if (eau_phase == 2'd1) begin
                   if (eau_dst | eau_dld) begin
-                    eau_phase <= 2'd0;                   
+                    eau_phase <= 2'd0;    
+                    eau_dst <= 1'b0;
+                    eau_dld <= 1'b0;  
+                    phase <= PH_FETCH;             
                   end 
                   else begin
                     eau_phase <= 2'd2;
+
                   end 
                 end
                 else if (eau_phase == 2'd2) begin
                   eau_phase <= 2'd0; 
+                  eau_mpy <= 1'b0;
+                  eau_div <= 1'b0;
+                  phase <= PH_FETCH;
                 end
               end
               else if ((phase == PH_FETCH) && is_mac_instr) begin

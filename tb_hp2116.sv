@@ -17,7 +17,7 @@ module tb_hp2116;
   localparam int MEM_WORDS = 1 << 15;
 
   localparam logic [15:0] INSTR_HALT    = 16'o102000;
-  localparam time         UART_BIT_TIME = 400ns;
+  localparam time         UART_BIT_TIME = 25600ns;
 
   logic clk, rst_n;
   logic [15:0] saved_A;
@@ -1126,7 +1126,8 @@ endfunction
       end
 
       // Skip the stop bits.
-      #(2 * bit_time);
+        #(bit_time / 2);
+        wait (serial_line == 1'b1);
     end
   endtask
 

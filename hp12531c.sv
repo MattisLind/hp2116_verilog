@@ -160,7 +160,7 @@ module hp12531c #(
     assign iob_in[7:0] = do_ioi ? shift_reg[9:2] : 8'h00;
     assign iob_in[14:8] = 7'h00;
     assign iob_in[15] = clock_enable_ff & do_ioi;
-    assign baudrategen_clock_enable = (baudrategen == 13'd4);
+    assign baudrategen_clock_enable = (baudrategen == 13'd319);
 
     assign uart_tx = ~ ((~shift_reg[0] & ~inout_ff & (print_ff | punch_ff)) | (~serial_in_or_flag & (print_ff | punch_ff) & inout_ff));
 
