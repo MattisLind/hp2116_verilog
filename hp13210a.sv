@@ -62,6 +62,16 @@ module hp13210a #(
   output logic         stm32_drq
 );
 
+typedef enum logic [2:0] {
+  SEEK_IDLE = 3'd0,
+  SEEK_GOT_SEEK_CMD = 3'd1,
+  SEEK_STORED_DATA = 3'd2,
+  SEEK_GET_NEXT_WORD = 3'd3,
+  SEEK_GOT_SECOND_WORD = 3'd4
+} seek_state_t;
+
+  seek_state_t seek_state;
+
   //--------------------------------------------------------------------------
   // Selection / decoded local strobes
   //--------------------------------------------------------------------------
@@ -116,6 +126,8 @@ module hp13210a #(
   logic        stm32_write_7900_data_registered;
   logic        stm32_write_7900_data_delayed;
   logic        stm32_write_7900_data_negedge;
+  logic        stm32_7900_seek_record_access;
+  logic        stm32_read_7900_seek_record;
   logic        stm32_irq_enable;
   logic        set_data_channel_flag_buffer;
   logic        command_channel_control_ff_delayed;
@@ -131,12 +143,31 @@ module hp13210a #(
   logic        stc_data_channel; 
   logic        stc_data_channel_delayed;
   logic        stc_data_channel_negedge;
+  logic        stc_data_channel_posedge;
   logic        seek_record_command;
+  logic        seek_or_address_record_command;
   logic        status_check_command;
   logic        stm32_7900_command_set_status_access;
   logic        stm32_7900_command_clear_status_access;
   logic        stm32_7900_command_set_status;
   logic        stm32_7900_command_clear_status;
+
+  logic        command_is_status_check;
+  logic        command_is_write_data;
+  logic        command_is_read_data;
+  logic        command_is_seek_record;
+  logic        command_is_refine_sector;
+  logic        command_is_check_data;
+  logic        command_is_initalize_data;
+  logic        command_is_address_record;
+  logic        command_is_seek_record_or_address_record;
+  logic        command_channel_control_ff_posedge;
+
+  logic [7:0]  cylinder_address;
+  logic [1:0]  head_address;
+  logic [4:0]  sector_address;
+  logic        reset_data_channel_encode_ff;
+  logic        set_irq_ff;
 
   localparam logic [3:0] STM32_REG_CSR                     = 4'h00;
   localparam logic [3:0] STM32_REG_7900_COMMAND_STATUS     = 4'h02;
@@ -144,6 +175,7 @@ module hp13210a #(
   localparam logic [3:0] STM32_REG_7900_ATTENTION          = 4'h06;
   localparam logic [3:0] STM32_REG_7900_SET_STATUS         = 4'h08;
   localparam logic [3:0] STM32_REG_7900_CLEAR_STATUS       = 4'h0A;
+  localparam logic [3:0] STM32_REG_7900_SEEK_RECORD        = 4'h0C;  
   //localparam logic [3:0] STM32_REG_DATA       = 4'h0c;
   //localparam logic [3:0] STM32_REG_IRQ_STATUS = 4'h0e;
 
@@ -227,18 +259,33 @@ module hp13210a #(
     stm32_7900_command_set_status = stm32_7900_command_set_status_access & ~stm32_fsmc_nwe;
     stm32_7900_command_clear_status = stm32_7900_command_clear_status_access & ~stm32_fsmc_nwe;
 
+    stm32_7900_seek_record_access = stm32_data_access & (address_register == STM32_REG_7900_SEEK_RECORD);
+    stm32_read_7900_seek_record = stm32_7900_seek_record_access & ~stm32_fsmc_noe;
+
+    stm32_fsmc_ad[15:0] = stm32_read_7900_seek_record ? { 1'b0, cylinder_address, head_address, sector_address } : 16'bz;
 
     stm32_irq = stm32_irq_ff & stm32_irq_enable | stm32_data_channel_irq_ff & stm32_data_channel_irq_enable;
 
     stm32_drq = 1'b0;
 
-    set_data_channel_flag_buffer =   stm32_write_7900_data_negedge | stm32_read_7900_data_negedge | ((command_register == 4'b0000) & ~command_channel_control_ff_delayed & command_channel_control_ff);
+    set_data_channel_flag_buffer =   reset_data_channel_encode_ff | stm32_write_7900_data_negedge | stm32_read_7900_data_negedge | ((command_register == 4'b0000) & ~command_channel_control_ff_delayed & command_channel_control_ff);
     stc_data_channel = stc & dsel;
     stc_data_channel_negedge = ~stc_data_channel & stc_data_channel_delayed;
-
+    stc_data_channel_posedge = stc_data_channel & ~stc_data_channel_delayed;  
     seek_record_command = ( command_register == 4'h3) & ioo;
     status_check_command = (command_register == 4'h0) & ioo;
-
+    
+    command_is_status_check = ( command_register == 4'h0);
+    command_is_write_data = ( command_register == 4'h1);
+    command_is_read_data = ( command_register == 4'h2);
+    command_is_seek_record = ( command_register == 4'h3);
+    command_is_refine_sector = ( command_register == 4'h5);
+    command_is_check_data = ( command_register == 4'h6);
+    command_is_initalize_data = ( command_register == 4'h9);
+    command_is_address_record = ( command_register == 4'hb);
+    command_is_seek_record_or_address_record = command_is_seek_record | command_is_address_record;
+    seek_or_address_record_command = (command_is_seek_record | command_is_address_record) & csel & stc;
+    command_channel_control_ff_posedge = ~command_channel_control_ff_delayed & command_channel_control_ff;
   end
 
   //--------------------------------------------------------------------------
@@ -274,7 +321,8 @@ module hp13210a #(
       overrun <= '{default: 0};
       first_status <= '{default: 0};
       data_protect <= '{default: 0};
-
+      reset_data_channel_encode_ff <= 1'b0;
+      set_irq_ff <= 1'b0;
       end else begin
 
         // microcontroller interface
@@ -314,16 +362,72 @@ module hp13210a #(
         command_channel_control_ff_delayed <= command_channel_control_ff;
 
         if (stm32_read_csr_negedge) stm32_irq_ff <= 1'b0;
-        else if ((command_register != 4'b0000) & ~command_channel_control_ff_delayed & command_channel_control_ff) stm32_irq_ff <= 1'b1;
+        else if (command_is_seek_record_or_address_record & set_irq_ff) stm32_irq_ff <= 1'b1;
+        else if ((command_is_write_data | command_is_read_data | command_is_refine_sector | command_is_check_data | command_is_initalize_data) & command_channel_control_ff_posedge) stm32_irq_ff <= 1'b1;
 
         if (stm32_read_7900_data_negedge | stm32_write_7900_data_negedge) stm32_data_channel_irq_ff <= 1'b0;
         else if (stc_data_channel_negedge) stm32_data_channel_irq_ff <= 1'b1;
+
+        if (crs | reset_data_channel_encode_ff) data_channel_encode_ff <= 1'b0;
+        else if (stc_data_channel_posedge) data_channel_encode_ff <= 1'b1;
 
         if (stm32_write_csr) begin
             stm32_irq_enable <= stm32_fsmc_ad[8];
             stm32_data_channel_irq_enable <= stm32_fsmc_ad[9];            
         end
 
+        case (seek_state)
+          SEEK_IDLE:
+            begin
+              if (seek_or_address_record_command) begin
+                seek_state <= SEEK_GOT_SEEK_CMD;  
+              end
+            end
+          SEEK_GOT_SEEK_CMD:
+            begin
+              if (crs) begin
+                seek_state <= SEEK_IDLE;
+              end 
+              else if (data_channel_encode_ff) begin
+                cylinder_address <= data_interface_output_buffer_register[7:0];  
+                reset_data_channel_encode_ff <= 1'b1;
+                seek_state <= SEEK_STORED_DATA;
+              end
+            end
+          SEEK_STORED_DATA:
+            begin
+              if (crs) begin
+                seek_state <= SEEK_IDLE;
+              end 
+              else begin
+                seek_state <= SEEK_GET_NEXT_WORD;  
+              end 
+              reset_data_channel_encode_ff <= 1'b0; 
+            end 
+          SEEK_GET_NEXT_WORD:
+            begin
+              if (crs) begin
+                seek_state <= SEEK_IDLE;
+              end
+              else if (data_channel_encode_ff) begin
+                head_address <= data_interface_output_buffer_register[9:8];
+                sector_address <=  data_interface_output_buffer_register[4:0];
+                reset_data_channel_encode_ff <= 1'b1; 
+                set_irq_ff <= 1'b1;
+                seek_state <= SEEK_GOT_SECOND_WORD;
+              end
+            end
+          SEEK_GOT_SECOND_WORD:
+            begin
+              if (~(clf & dsel)) begin
+                seek_state <= SEEK_IDLE;
+                set_irq_ff <= 1'b0;
+                reset_data_channel_encode_ff <= 1'b0; 
+              end  
+            end
+          default:
+            seek_state <= SEEK_IDLE;
+        endcase
 
 
         if (stm32_7900_command_set_status) begin

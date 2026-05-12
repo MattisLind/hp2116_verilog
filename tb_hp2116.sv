@@ -563,6 +563,7 @@ endfunction
   localparam logic [15:0] STM32_REG_7900_ATTENTION          = 16'h06;
   localparam logic [15:0] STM32_REG_7900_SET_STATUS         = 16'h08;
   localparam logic [15:0] STM32_REG_7900_CLEAR_STATUS       = 16'h0A;
+  localparam logic [15:0] STM32_REG_7900_SEEK_RECORD        = 16'h0C;
 
 
   //localparam logic [13:0] STATUS_DATA_ERROR       = 14'b0000000000001;
@@ -835,17 +836,10 @@ endfunction
     task automatic stm32_get_seek_address();
         logic [15:0] indata;
         begin
-
-
-            // Kodkommentar: Läs cylinder-ordet.
             stm32_wait_csr_bit_set(6);
-            stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
-            rar_cylinder = indata[7:0];
-
-            // Kodkommentar: Läs head/sector-ordet.
-            stm32_wait_csr_bit_set(6);
-            stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
-            rar_head   = indata[9:8];
+            stm32_fsmc_read16(STM32_REG_7900_SEEK_RECORD, indata);
+            rar_cylinder = indata[14:7];
+            rar_head   = indata[6:5];
             rar_sector = indata[4:0];
         end
     endtask
