@@ -82,8 +82,8 @@ module hp13210a #(
   logic        [1:0] drive_select_register; 
   logic        protected_cylinder_register;
   logic        defective_cylinder_register;
-  logic        first_status, overrun, drive_unsafe, data_protect, seek_check, not_ready, end_of_cylinder, address_error;
-  logic        flagged_cylinder, drive_busy, data_error, any_error;
+  logic        first_status[0:3], overrun[0:3], drive_unsafe[0:3], data_protect[0:3], seek_check[0:3], not_ready[0:3], end_of_cylinder[0:3], address_error[0:3];
+  logic        flagged_cylinder[0:3], drive_busy[0:3], data_error[0:3], any_error;
   logic        [3:0] attention_input_register;
   logic        data_op;
   logic        drv0_sel, drv1_sel, drv2_sel, drv3_sel;
@@ -133,11 +133,17 @@ module hp13210a #(
   logic        stc_data_channel_negedge;
   logic        seek_record_command;
   logic        status_check_command;
+  logic        stm32_7900_command_set_status_access;
+  logic        stm32_7900_command_clear_status_access;
+  logic        stm32_7900_command_set_status;
+  logic        stm32_7900_command_clear_status;
 
   localparam logic [3:0] STM32_REG_CSR                     = 4'h00;
   localparam logic [3:0] STM32_REG_7900_COMMAND_STATUS     = 4'h02;
   localparam logic [3:0] STM32_REG_7900_DATA               = 4'h04;
   localparam logic [3:0] STM32_REG_7900_ATTENTION          = 4'h06;
+  localparam logic [3:0] STM32_REG_7900_SET_STATUS         = 4'h08;
+  localparam logic [3:0] STM32_REG_7900_CLEAR_STATUS       = 4'h0A;
   //localparam logic [3:0] STM32_REG_DATA       = 4'h0c;
   //localparam logic [3:0] STM32_REG_IRQ_STATUS = 4'h0e;
 
@@ -148,7 +154,7 @@ module hp13210a #(
 
     //strobe_attention 
     data_op = 1'b1; 
-    any_error = data_error | seek_check | drive_busy | address_error | drive_unsafe | overrun | end_of_cylinder | drive_busy | first_status;
+    any_error = data_error[drive_select_register] | seek_check[drive_select_register] | drive_busy[drive_select_register] | address_error[drive_select_register] | drive_unsafe[drive_select_register] | overrun[drive_select_register] | end_of_cylinder[drive_select_register] | drive_busy[drive_select_register] | first_status[drive_select_register];
 
     dsel  = iog && scm_l && scl_l;
     csel  = iog && scm_h && scl_h;
@@ -167,11 +173,9 @@ module hp13210a #(
     // The skip line is driven only when the card is selected.
     skf  = (data_channel_flag_ff & sfs & dsel) | (~data_channel_flag_ff & sfc & dsel) | (command_channel_flag_ff & sfs & csel) | (~command_channel_flag_ff & sfc & csel);
 
-    // Either we supply data through the data channel from the status register or from the data buffer register
-
-    iob_in = 16'h0000;
-    if (dsel & ioi & ~hp7900_data_n_status) iob_in [15:0] = { 1'b0, first_status, overrun, 1'b0, drive_unsafe, data_protect, 1'b0, seek_check, 1'b0, not_ready, end_of_cylinder, address_error, flagged_cylinder, drive_busy, data_error, any_error};
-    if (dsel & ioi & hp7900_data_n_status) iob_in [15:0] = data_interface_input_buffer_register;
+    
+    if (dsel & ioi) iob_in [15:0] = data_interface_input_buffer_register;
+    else iob_in = 16'h0000;
 
 
     if (ioi & csel) iob_in [15:0] = {12'b000000000000, attention_input_register};
@@ -217,11 +221,18 @@ module hp13210a #(
 
     stm32_write_7900_attention_negedge = ~stm32_write_7900_attention_registered & stm32_write_7900_attention_delayed;
 
+
+    stm32_7900_command_set_status_access = stm32_data_access & (address_register == STM32_REG_7900_SET_STATUS);
+    stm32_7900_command_clear_status_access = stm32_data_access & (address_register == STM32_REG_7900_CLEAR_STATUS);
+    stm32_7900_command_set_status = stm32_7900_command_set_status_access & ~stm32_fsmc_nwe;
+    stm32_7900_command_clear_status = stm32_7900_command_clear_status_access & ~stm32_fsmc_nwe;
+
+
     stm32_irq = stm32_irq_ff & stm32_irq_enable | stm32_data_channel_irq_ff & stm32_data_channel_irq_enable;
 
     stm32_drq = 1'b0;
 
-    set_data_channel_flag_buffer = ~hp7900_data_n_status & stm32_write_7900_command_status_negedge | hp7900_data_n_status &  stm32_write_7900_data_negedge | stm32_read_7900_data_negedge;
+    set_data_channel_flag_buffer =   stm32_write_7900_data_negedge | stm32_read_7900_data_negedge | ((command_register == 4'b0000) & ~command_channel_control_ff_delayed & command_channel_control_ff);
     stc_data_channel = stc & dsel;
     stc_data_channel_negedge = ~stc_data_channel & stc_data_channel_delayed;
 
@@ -251,6 +262,18 @@ module hp13210a #(
       stm32_irq_ff <= 1'b0;
       stm32_data_channel_irq_ff <= 1'b0;
       //stm32_irq_enable <= 1'b0; Has to be commented out since PRESET reset this.
+
+      data_error <= '{default: 0};
+      drive_busy <= '{default: 0};
+      flagged_cylinder <= '{default: 0};
+      address_error <= '{default: 0};
+      end_of_cylinder <= '{default: 0};
+      not_ready <= '{default: 0};
+      seek_check <= '{default: 0};
+      drive_unsafe <= '{default: 0};
+      overrun <= '{default: 0};
+      first_status <= '{default: 0};
+      data_protect <= '{default: 0};
 
       end else begin
 
@@ -289,31 +312,46 @@ module hp13210a #(
 
         // The IRQ is set on the rising edge of the command channel control signal and reset by reading the status register.
         command_channel_control_ff_delayed <= command_channel_control_ff;
+
         if (stm32_read_csr_negedge) stm32_irq_ff <= 1'b0;
-        else if (~command_channel_control_ff_delayed & command_channel_control_ff) stm32_irq_ff <= 1'b1;
+        else if ((command_register != 4'b0000) & ~command_channel_control_ff_delayed & command_channel_control_ff) stm32_irq_ff <= 1'b1;
 
         if (stm32_read_7900_data_negedge | stm32_write_7900_data_negedge) stm32_data_channel_irq_ff <= 1'b0;
         else if (stc_data_channel_negedge) stm32_data_channel_irq_ff <= 1'b1;
 
         if (stm32_write_csr) begin
             stm32_irq_enable <= stm32_fsmc_ad[8];
-            stm32_data_channel_irq_enable <= stm32_fsmc_ad[9];
-            hp7900_data_n_status <= stm32_fsmc_ad[1];
+            stm32_data_channel_irq_enable <= stm32_fsmc_ad[9];            
         end
 
 
-        if (stm32_write_7900_command_status) begin
-            first_status <= stm32_fsmc_ad[14];
-            overrun <= stm32_fsmc_ad[13];
-            drive_unsafe <= stm32_fsmc_ad[11];
-            data_protect <= stm32_fsmc_ad[10];
-            seek_check <= stm32_fsmc_ad[8];
-            not_ready <= stm32_fsmc_ad[6];
-            end_of_cylinder <= stm32_fsmc_ad[5];
-            address_error <= stm32_fsmc_ad[4];
-            flagged_cylinder <= stm32_fsmc_ad[3];
-            drive_busy <= stm32_fsmc_ad[2];
-            data_error <= stm32_fsmc_ad[1];  
+
+        if (stm32_7900_command_set_status) begin
+          if (stm32_fsmc_ad[0]) data_error[stm32_fsmc_ad[15:14]] <= 1'b1;
+          if (stm32_fsmc_ad[1]) drive_busy[stm32_fsmc_ad[15:14]] <= 1'b1;
+          if (stm32_fsmc_ad[2]) flagged_cylinder[stm32_fsmc_ad[15:14]] <= 1'b1;
+          if (stm32_fsmc_ad[3]) address_error[stm32_fsmc_ad[15:14]] <= 1'b1;
+          if (stm32_fsmc_ad[4]) end_of_cylinder[stm32_fsmc_ad[15:14]] <= 1'b1;
+          if (stm32_fsmc_ad[5]) not_ready[stm32_fsmc_ad[15:14]] <= 1'b1;
+          if (stm32_fsmc_ad[6]) seek_check[stm32_fsmc_ad[15:14]] <= 1'b1;
+          if (stm32_fsmc_ad[7]) data_protect[stm32_fsmc_ad[15:14]] <= 1'b1;
+          if (stm32_fsmc_ad[8]) drive_unsafe[stm32_fsmc_ad[15:14]] <= 1'b1;
+          if (stm32_fsmc_ad[9]) overrun[stm32_fsmc_ad[15:14]] <= 1'b1;
+          if (stm32_fsmc_ad[10]) first_status[stm32_fsmc_ad[15:14]] <= 1'b1; 
+        end
+
+        if (stm32_7900_command_clear_status) begin
+          if (stm32_fsmc_ad[0]) data_error[stm32_fsmc_ad[15:14]] <= 1'b0;
+          if (stm32_fsmc_ad[1]) drive_busy[stm32_fsmc_ad[15:14]] <= 1'b0;
+          if (stm32_fsmc_ad[2]) flagged_cylinder[stm32_fsmc_ad[15:14]] <= 1'b0;
+          if (stm32_fsmc_ad[3]) address_error[stm32_fsmc_ad[15:14]] <= 1'b0;
+          if (stm32_fsmc_ad[4]) end_of_cylinder[stm32_fsmc_ad[15:14]] <= 1'b0;
+          if (stm32_fsmc_ad[5]) not_ready[stm32_fsmc_ad[15:14]] <= 1'b0;
+          if (stm32_fsmc_ad[6]) seek_check[stm32_fsmc_ad[15:14]] <= 1'b0;
+          if (stm32_fsmc_ad[7]) data_protect[stm32_fsmc_ad[15:14]] <= 1'b0;
+          if (stm32_fsmc_ad[8]) drive_unsafe[stm32_fsmc_ad[15:14]] <= 1'b0;
+          if (stm32_fsmc_ad[9]) overrun[stm32_fsmc_ad[15:14]] <= 1'b0;
+          if (stm32_fsmc_ad[10]) first_status[stm32_fsmc_ad[15:14]] <= 1'b0; 
         end
 
         stm32_read_7900_data_registered <= stm32_read_7900_data;
@@ -325,9 +363,16 @@ module hp13210a #(
         stm32_write_7900_command_status_registered <= stm32_write_7900_command_status;
         stm32_write_7900_command_status_delayed <= stm32_write_7900_command_status_registered;
 
-        if (stm32_write_7900_data) begin
-            data_interface_input_buffer_register <= stm32_fsmc_ad;
+        if ((command_register == 4'b0000) & ~command_channel_control_ff_delayed & command_channel_control_ff) begin
+            data_interface_input_buffer_register <= { 1'b0, first_status[drive_select_register], overrun[drive_select_register], 1'b0, drive_unsafe[drive_select_register], data_protect[drive_select_register], 1'b0, seek_check[drive_select_register], 1'b0, not_ready[drive_select_register], end_of_cylinder[drive_select_register], address_error[drive_select_register], flagged_cylinder[drive_select_register], drive_busy[drive_select_register], data_error[drive_select_register], any_error};
+            address_error[drive_select_register] <= 1'b0;
+            end_of_cylinder[drive_select_register] <= 1'b0;
+            overrun[drive_select_register] <= 1'b0;
+            first_status[drive_select_register] <= 1'b0;
         end
+        else if (stm32_write_7900_data) begin
+            data_interface_input_buffer_register <= stm32_fsmc_ad;
+        end  
 
         // irq flip/flop
         if (sir & prh & command_channel_flag_buffer_ff & ien & command_channel_flag_ff & command_channel_control_ff) irq_ff <= 1'b1;

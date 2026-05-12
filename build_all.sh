@@ -183,3 +183,6 @@ fi
 
 # Running 12909B PROM Writer diagnostic   - diag failed - not implemented
 #./build_hp2116.sh diagnostics/24360-16001_DSN103006_12909B_PROM_WRITER.abin 103006 NO $TRACE
+
+# Running RTE
+#./build_hp2116.sh diagnostics/24296-60001_DSN000200_DIAGNOSTIC_CONFIGURATOR.abin 000200 NO YES  mh_boot.abs.new RTE_MH.disc

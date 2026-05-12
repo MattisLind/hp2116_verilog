@@ -201,8 +201,11 @@ logic defective_cylinder [202:0];
 logic protected_cylinder [202:0];
 
 
+/*
 logic data_error;
+*/
 logic drive_busy [3:0];
+/*
 logic flagged_cylinder;
 logic address_error;
 logic end_of_cylinder [3:0];
@@ -210,7 +213,8 @@ logic not_ready [3:0];
 logic seek_check [3:0];
 logic drive_unsafe [3:0];
 logic overrun;
-logic first_status [3:0];
+logic first_status [3:0]; 
+*/
 logic data_protect [3:0] [3:0];
 logic protected_drive [3:0];
 
@@ -224,13 +228,13 @@ logic protected_drive [3:0];
 
 
 function automatic void load_drive (input logic [1:0] drive);
-  not_ready[drive] = 1'b0;
-  first_status[drive] = 1'b1;
+  //not_ready[drive] = 1'b0;
+  //first_status[drive] = 1'b1;
   current_cylinder[drive] = 8'o000; 
 endfunction
 
 function automatic void unload_drive (input logic [1:0] drive);
-  not_ready[drive] = 1'b1;
+  //not_ready[drive] = 1'b1;
 endfunction
 
 function automatic void protect_drive (input logic [1:0] drive);
@@ -365,7 +369,8 @@ task automatic stm32_write_cylinder();
                     stm32_wait_csr_bit_set_timeout(6, 1200ns, got_word);
                     if (got_word) begin
                       stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
-                      overrun = 1'b1;
+                      //overrun = 1'b1;
+                      stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_OVERRUN});
                     end
                 end
 
@@ -383,7 +388,8 @@ task automatic stm32_write_cylinder();
             disk_image[selected_drive][off + 0] = indata[7:0];
                       
             if (eoc_flag) begin
-              end_of_cylinder[selected_drive] = 1'b1;
+              //end_of_cylinder[selected_drive] = 1'b1;
+              stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_END_OF_CYLINDER});
               break;  
             end
             calculate_rar ("WRITE"); 
@@ -415,13 +421,14 @@ task automatic stm32_read_cylinder(
             
             if (eoc_flag) begin
               $display("[%0t] STM32 READ: EOC detected ", $time);
-              end_of_cylinder[selected_drive] = 1'b1;
+              //end_of_cylinder[selected_drive] = 1'b1;
+              stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_END_OF_CYLINDER});
               break;  
             end
             stm32_fsmc_write16(STM32_REG_7900_DATA, data);  // <<-- Before or after the eoc_flag check?
             calculate_rar ("READ");       
             // 
-            stm32_wait_csr_bit_set_timeout(6, 600ns, got_word);
+            stm32_wait_csr_bit_set_timeout(6, 400ns, got_word);
 
             if (!got_word) begin
                 $display("[%0t] STM32 READ: timeout at C=%d H=%d S=%d W=%0d",$time, rar_cylinder, rar_head, rar_sector, word_count);
@@ -429,7 +436,8 @@ task automatic stm32_read_cylinder(
                 stm32_wait_csr_bit_set_timeout(6, 1200ns, got_word);
                 if (got_word) begin
                   //stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
-                    overrun = 1'b1;
+                    //overrun = 1'b1;
+                    stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_OVERRUN});
                   end
                 break;
             end
@@ -502,19 +510,17 @@ task automatic disk_save_image(input int drive);
 endtask
 
 initial begin : disk_image_init
-    // Kodkommentar: Standardnamn. Kan ersättas med plusargs.
-    disk_filename[0] = "drive0.img";
-    disk_filename[1] = "drive1.img";
-    disk_filename[2] = "drive2.img";
-    disk_filename[3] = "drive3.img";
+
 
     // Kodkommentar: Tillåt override från kommandoraden.
-    void'($value$plusargs("DISKNOLL=%s", disk_filename[0]));
-    $display("disk_filname[0]=%s", disk_filename[0]);
+    void'($value$plusargs("DISK0=%s", disk_filename[0]));
     void'($value$plusargs("DISK1=%s", disk_filename[1]));
     void'($value$plusargs("DISK2=%s", disk_filename[2]));
     void'($value$plusargs("DISK3=%s", disk_filename[3]));
-
+    if (disk_filename[0] == "") disk_filename[0] = "drive0.img";
+    if (disk_filename[1] == "") disk_filename[1] = "drive1.img";
+    if (disk_filename[2] == "") disk_filename[2] = "drive2.img";
+    if (disk_filename[3] == "") disk_filename[3] = "drive3.img";
     // Kodkommentar: Läs in alla diskbilder innan simuleringen börjar använda dem.
     for (int d = 0; d < DISK_DRIVES; d++)
         disk_load_image(d);
@@ -555,6 +561,21 @@ endfunction
   localparam logic [15:0] STM32_REG_7900_COMMAND_STATUS     = 16'h02;
   localparam logic [15:0] STM32_REG_7900_DATA               = 16'h04;
   localparam logic [15:0] STM32_REG_7900_ATTENTION          = 16'h06;
+  localparam logic [15:0] STM32_REG_7900_SET_STATUS         = 16'h08;
+  localparam logic [15:0] STM32_REG_7900_CLEAR_STATUS       = 16'h0A;
+
+
+  //localparam logic [13:0] STATUS_DATA_ERROR       = 14'b0000000000001;
+  localparam logic [13:0] STATUS_DRIVE_BUSY       = 14'b0000000000010;
+  localparam logic [13:0] STATUS_FLAGGED_CYLINDER = 14'b0000000000100;
+  localparam logic [13:0] STATUS_ADDRESS_ERROR    = 14'b0000000001000;
+  localparam logic [13:0] STATUS_END_OF_CYLINDER  = 14'b0000000010000;
+  //localparam logic [13:0] STATUS_NOT_READY        = 14'b0000000100000;
+  localparam logic [13:0] STATUS_SEEK_CHECK       = 14'b0000001000000;
+  //localparam logic [13:0] STATUS_DATA_PROTECT     = 14'b0000010000000;
+  //localparam logic [13:0] STATUS_DRIVE_UNSAFE     = 14'b0000100000000;
+  localparam logic [13:0] STATUS_OVERRUN          = 14'b0001000000000;
+  localparam logic [13:0] STATUS_FIRST_STATUS     = 14'b0010000000000;
 
   // Kodkommentar: Exempelbitar. Anpassa efter din verkliga registerdefinition.
   //localparam logic [15:0] STM32_STATUS_BUSY = 16'h0001;
@@ -775,14 +796,15 @@ endfunction
       begin
         // Set the drive as busy before starting seek
         drive_busy[selected_drive] = 1'b1;
+        stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_DRIVE_BUSY});
         //$display("[%0t] STM32: Drive %0d seek started C=%0d H=%0d S=%0d LBA=%0d",$time,seek_drive, seek_cylinder, seek_head, seek_sector,chs_to_lba(seek_cylinder, seek_head, seek_sector));
         
         current_cylinder[selected_drive] = seek_cylinder;
         #(4ms);
         // seek is done
         drive_busy[selected_drive] = 1'b0;
-        first_status[selected_drive] = 1'b0;
-
+        //first_status[selected_drive] = 1'b0;
+        stm32_fsmc_write16(STM32_REG_7900_CLEAR_STATUS, { selected_drive[1:0], STATUS_DRIVE_BUSY | STATUS_FIRST_STATUS});
         // Signal attention for the drive that was done doing seek
         stm32_fsmc_write16(STM32_REG_7900_ATTENTION, {12'h000, decode2to4(selected_drive)});
         
@@ -828,13 +850,6 @@ endfunction
         end
     endtask
 
-  function automatic logic [15:0] return_status ();
-    return ({1'b0, first_status[selected_drive], overrun, 1'b0, drive_unsafe[selected_drive], data_protect[selected_drive][rar_head], 1'b0,
-            seek_check[selected_drive],1'b0, not_ready[selected_drive], end_of_cylinder[selected_drive], address_error, 
-            flagged_cylinder, drive_busy[selected_drive], data_error, 1'b0});
-  endfunction
-
-
   // Kodkommentar: Bakgrundsmodell för STM32-firmware. Den pollar IRQ/DRQ med
   // Kodkommentar: #fördröjningar och är därför asynkron mot HP2116 CPU-klockan.
   initial begin : stm32_firmware_daemon
@@ -849,16 +864,16 @@ endfunction
     int i,j;
     csr_value = 16'b0000000100000000;
     wait (rst_n == 1'b1);
-    data_error = 1'b0;
+    //data_error = 1'b0;
     drive_busy = '{default: 0};
-    flagged_cylinder = 1'b0;
-    address_error = 1'b0;
-    end_of_cylinder = '{default: 0};
-    not_ready = '{default: 0};
-    seek_check = '{default: 0};
-    drive_unsafe = '{default: 0};
-    overrun = 1'b0;
-    first_status = '{default: 1};
+    //flagged_cylinder = 1'b0;
+    //address_error = 1'b0;
+    //end_of_cylinder = '{default: 0};
+    //not_ready = '{default: 0};
+    //seek_check = '{default: 0};
+    //drive_unsafe = '{default: 0};
+    //overrun = 1'b0;
+    //first_status = '{default: 1};
     data_protect = '{default: '{default: 0}}; 
     protected_drive = '{default: 0};    
     #(1us);
@@ -874,40 +889,32 @@ endfunction
         //$display("[%0t] STM32: Got command %04o drive = %1d protected= %1d defective=%1d", $time, command, selected_drive, protected_cylinder_indicator, defective_cylinder_indicator);
         // Kodkommentar: Välj åtgärd beroende på kommando-koden.
         case (command)
-          4'h0: begin
-            //$display("[%0t] STM32: Got Status Check command on drive %d", $time,selected_drive);
-            // enable status output 
-            csr_value[1] = 1'b0;
-            stm32_fsmc_write16(STM32_REG_CSR, csr_value);
-            // write the status ouput from selected drive and or in the address error bit which is global
-            stm32_fsmc_write16(STM32_REG_7900_COMMAND_STATUS, return_status ());
-            address_error  = 1'b0; // clear address error when doing status check
-            end_of_cylinder[selected_drive] = 1'b0; // clear end_of_cylinder when doing status check
-            overrun = 1'b0;  // clear overrun when doing status check
-            first_status[selected_drive] = 1'b0; // clear first_status when doing a status check
-          end
-
           4'h1: begin
            
             //$display("[%0t] STM32: Got Write Data command on drive %d", $time,selected_drive);
        
             if (current_cylinder[selected_drive] != rar_cylinder) begin
-              address_error = 1'b1;  // Address error
+              //address_error = 1'b1;  // Address error
+              stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_ADDRESS_ERROR});
               current_cylinder[selected_drive] = 8'o000;            // recalibrate if address error
             end
             else if (data_protect[selected_drive][rar_head]) begin
-              flagged_cylinder = 1'b1; 
+              //flagged_cylinder = 1'b1; 
+              stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_FLAGGED_CYLINDER});
             end else if (protected_cylinder[rar_cylinder] && protected_drive[selected_drive]) begin
-              flagged_cylinder = 1'b1; 
+              //flagged_cylinder = 1'b1; 
+              stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_FLAGGED_CYLINDER});
             end else if (defective_cylinder[rar_cylinder]) begin
-              flagged_cylinder = 1'b1; 
-              address_error = 1'b1;
+              //flagged_cylinder = 1'b1; 
+              //address_error = 1'b1;
+              stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_FLAGGED_CYLINDER | STATUS_ADDRESS_ERROR});
             end
             else begin
               // enable data output on data channel
-              flagged_cylinder = 1'b0; 
-              csr_value[1] = 1'b1;
-              stm32_fsmc_write16(STM32_REG_CSR, csr_value);   
+              //flagged_cylinder = 1'b0; 
+              stm32_fsmc_write16(STM32_REG_7900_CLEAR_STATUS, { selected_drive[1:0], STATUS_FLAGGED_CYLINDER});
+              //csr_value[1] = 1'b1;
+              //stm32_fsmc_write16(STM32_REG_CSR, csr_value);   
               // Write cylinder from RAR               
               stm32_write_cylinder();
             end
@@ -919,15 +926,17 @@ endfunction
             if (current_cylinder[selected_drive] != rar_cylinder) begin
               //$display("[%0t] STM32: address error on read", $time);
               current_cylinder[selected_drive] = 8'o000;
-              address_error = 1'b1;  // Address error
+              //address_error = 1'b1;  // Address error
+              stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_ADDRESS_ERROR});
             end
             
             // enable data output on data channel
-            csr_value[1] = 1'b1;
-            stm32_fsmc_write16(STM32_REG_CSR, csr_value);    
+            //csr_value[1] = 1'b1;
+            //stm32_fsmc_write16(STM32_REG_CSR, csr_value);    
             // Read cylinder from RAR         
             stm32_read_cylinder();
             drive_busy[selected_drive] = 1'b0;
+            stm32_fsmc_write16(STM32_REG_7900_CLEAR_STATUS, { selected_drive[1:0], STATUS_DRIVE_BUSY});
             stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
 
           end
@@ -941,13 +950,17 @@ endfunction
 
             if (drive_busy[selected_drive]) begin
               //$display("[%0t] STM32: Got Seek Record command - already busy", $time);
-              seek_check[selected_drive] = 1'b1; 
+              //seek_check[selected_drive] = 1'b1; 
+              stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_SEEK_CHECK});
               drive_busy[selected_drive] = 1'b0; // apparently it shall return not busy in this case. 
+              stm32_fsmc_write16(STM32_REG_7900_CLEAR_STATUS, { selected_drive[1:0], STATUS_DRIVE_BUSY});
               stm32_fsmc_write16(STM32_REG_7900_ATTENTION,{12'h000, decode2to4(selected_drive)}); 
             end else if ((rar_cylinder > 8'd202) || (rar_sector > 5'd23)) begin
                 // seek check
-                seek_check[selected_drive] = 1'b1;
+                //seek_check[selected_drive] = 1'b1;
+                stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_SEEK_CHECK});
                 drive_busy[selected_drive] = 1'b0;
+                stm32_fsmc_write16(STM32_REG_7900_CLEAR_STATUS, { selected_drive[1:0], STATUS_DRIVE_BUSY});
                 //$display("[%0t] STM32: Got Seek Record command - invalid address", $time);
                 stm32_fsmc_write16(STM32_REG_7900_ATTENTION,{12'h000, decode2to4(selected_drive)});
             end
@@ -958,9 +971,11 @@ endfunction
                 automatic logic [1:0] worker_head     = rar_head;
                 automatic logic [4:0] worker_sector   = rar_sector;
                 // Clear seek_check if seek command was accepted
-                seek_check[selected_drive] = 1'b0;
+                // seek_check[selected_drive] = 1'b0;
+                stm32_fsmc_write16(STM32_REG_7900_CLEAR_STATUS, { selected_drive[1:0], STATUS_SEEK_CHECK});
                 // Drive busy during seek
                 drive_busy[selected_drive] = 1'b1;
+                stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_DRIVE_BUSY});
 
                 fork
                   begin
@@ -987,7 +1002,8 @@ endfunction
             //$display("[%0t] STM32: Got Check Data command on drive %d num sectors= %d", $time,selected_drive, num_sectors);            
             for (i = 0; i < 32'(unsigned'(num_sectors)); i++) begin
               if (eoc_flag) begin
-                end_of_cylinder[selected_drive] = 1'b1;
+                //end_of_cylinder[selected_drive] = 1'b1;
+                stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_END_OF_CYLINDER});
                 break;
               end              
               for (j = 0; j < 128; j++) begin
@@ -1007,21 +1023,25 @@ endfunction
           4'h9: begin
             //$display("[%0t] STM32: Got Initialize Data command on drive %d", $time,selected_drive);
             if (current_cylinder[selected_drive] != rar_cylinder) begin
-              address_error = 1'b1;  // Address error
+              //address_error = 1'b1;  // Address error
+              stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_ADDRESS_ERROR});
               current_cylinder[selected_drive] = 8'o000;            // recalibrate if address error
             end
             else if (data_protect[selected_drive][rar_head]) begin
-              flagged_cylinder = 1'b1; 
+              stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_FLAGGED_CYLINDER});
+              //flagged_cylinder = 1'b1; 
             end else if (protected_drive[selected_drive]) begin
-              flagged_cylinder = 1'b1;  
+              //flagged_cylinder = 1'b1;  
+              stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_FLAGGED_CYLINDER});
             end
             else begin
               // enable data output on data channel
               defective_cylinder[rar_cylinder] = defective_cylinder_indicator;
               protected_cylinder[rar_cylinder] = protected_cylinder_indicator;
-              flagged_cylinder = 1'b0; 
-              csr_value[1] = 1'b1;
-              stm32_fsmc_write16(STM32_REG_CSR, csr_value);   
+              //flagged_cylinder = 1'b0; 
+              stm32_fsmc_write16(STM32_REG_7900_CLEAR_STATUS, { selected_drive[1:0], STATUS_FLAGGED_CYLINDER});
+              //csr_value[1] = 1'b1;
+              //stm32_fsmc_write16(STM32_REG_CSR, csr_value);   
               // Write cylinder from RAR               
               stm32_write_cylinder();
             end
