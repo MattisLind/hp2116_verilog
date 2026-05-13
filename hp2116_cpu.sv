@@ -86,7 +86,7 @@ module hp2116_cpu #(
   logic [15:0] TR;          // Memory data buffer / T register
   logic [14:0] P;          // Program counter
   logic [14:0] M;          // Memory address register
-
+  logic [4:0] clk_scale;
   logic        EXTEND;
   logic        OVERFLOW;
   logic        CARRY;
@@ -170,6 +170,9 @@ module hp2116_cpu #(
   logic divisor_sign;
   logic dividend_sign;
   logic skip_to_end;
+
+  logic scale_clock_enable;
+  
   //--------------------------------------------------------------------------
   // T-state enum: T0..T7
   //--------------------------------------------------------------------------
@@ -640,6 +643,7 @@ hp12845a lpt (
   .jumper_w9("IN")   
 );
 
+assign scale_clock_enable = (clk_scale == 5'd0);
 
   //--------------------------------------------------------------------------
   // Helper: next T-state
@@ -1210,7 +1214,7 @@ endfunction
       dma_1_cycle_div_toggle_delayed <= 1'b0;
       dma_2_cycle_div_toggle_delayed <= 1'b0;
       dma_phase <=1'b0;
-    end else begin
+    end else if (scale_clock_enable) begin
       if (crs | (clc & (sc_mux == 6'o2))) dma_1_reg_selector <= 1'b0;
       else if (stc & (sc_mux == 6'o2)) dma_1_reg_selector <= 1'b1;
 
@@ -1311,7 +1315,7 @@ endfunction
     if (popio) begin
       run_btn_d <= 1'b0;
       sc_btn_d  <= 1'b0;
-    end else begin
+    end else if (scale_clock_enable) begin
       run_btn_d <= run_btn;
       sc_btn_d  <= single_cycle_btn;
     end
@@ -1362,8 +1366,9 @@ endfunction
       step_started_by_sc <= 1'b0;
 
       panel_disp_pending <= 1'b0;
-
-    end else begin
+      clk_scale <= 5'd0;
+    end else if (scale_clock_enable) begin
+      clk_scale <= 5'd0;
       // Default is no memory write in this cycle.
       mem_we <= 1'b0;
       //======================================================================
@@ -2562,6 +2567,8 @@ endfunction
         end
 
       end
+    end else begin
+      clk_scale <= clk_scale + 5'd1;  
     end
   end
 

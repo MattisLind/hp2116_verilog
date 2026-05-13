@@ -836,7 +836,6 @@ endfunction
     task automatic stm32_get_seek_address();
         logic [15:0] indata;
         begin
-            stm32_wait_csr_bit_set(6);
             stm32_fsmc_read16(STM32_REG_7900_SEEK_RECORD, indata);
             rar_cylinder = indata[14:7];
             rar_head   = indata[6:5];
@@ -880,13 +879,13 @@ endfunction
         selected_drive = indata[1:0];
         protected_cylinder_indicator = indata[9];
         defective_cylinder_indicator = indata[8];        
-        //$display("[%0t] STM32: Got command %04o drive = %1d protected= %1d defective=%1d", $time, command, selected_drive, protected_cylinder_indicator, defective_cylinder_indicator);
+        $display("[%0t] STM32: Got command %04o drive = %1d protected= %1d defective=%1d", $time, command, selected_drive, protected_cylinder_indicator, defective_cylinder_indicator);
         // Kodkommentar: Välj åtgärd beroende på kommando-koden.
         case (command)
           4'h1: begin
            
-            //$display("[%0t] STM32: Got Write Data command on drive %d", $time,selected_drive);
-       
+            $display("[%0t] STM32: Got Write Data command on drive %d", $time,selected_drive);
+            stm32_get_seek_address();
             if (current_cylinder[selected_drive] != rar_cylinder) begin
               //address_error = 1'b1;  // Address error
               stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_ADDRESS_ERROR});
@@ -917,6 +916,7 @@ endfunction
 
           4'h2: begin
             $display("[%0t] STM32: Got Read Data command on drive %d", $time,selected_drive);
+            stm32_get_seek_address();
             if (current_cylinder[selected_drive] != rar_cylinder) begin
               //$display("[%0t] STM32: address error on read", $time);
               current_cylinder[selected_drive] = 8'o000;
@@ -989,6 +989,7 @@ endfunction
             eoc_flag = 1'b0;
             got_word = 1'b1;
             csr_value[1] = 1'b1;
+            stm32_get_seek_address();
             stm32_fsmc_write16(STM32_REG_CSR, csr_value);            
             stm32_wait_csr_bit_set(6);
             stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
@@ -1015,6 +1016,7 @@ endfunction
           end
 
           4'h9: begin
+            stm32_get_seek_address();
             //$display("[%0t] STM32: Got Initialize Data command on drive %d", $time,selected_drive);
             if (current_cylinder[selected_drive] != rar_cylinder) begin
               //address_error = 1'b1;  // Address error
@@ -1112,8 +1114,8 @@ endfunction
       // Two stop bits.
       serial_line = 1'b1;
       #(bit_time);
-      serial_line = 1'b1;
-      #(bit_time);
+      //serial_line = 1'b1;
+      //#(bit_time);
     end
   endtask
 
