@@ -38,6 +38,9 @@ fi
 # Running Mem Prot/Parity Error diagnostic - diag failed - not implemented
 #./build_hp2116.sh diagnostics/12892-16001_DSN102305_MEM_PROT_PARITY_ERROR_2100_21MX.abin 102305 NO $TRACE
 
+# Old memory protection diag
+./build_hp2116.sh diagnostics/24324-16001_Rev-1431_with_zero_trailer.abin 102001  NO  
+
 # Running Power Fail Auto Restart diagnostic - waiting for input?
 #./build_hp2116.sh diagnostics/24321-16001_DSN101206_POWER_FAIL_AUTO_RESTART.abin 101206 NO $TRACE
 

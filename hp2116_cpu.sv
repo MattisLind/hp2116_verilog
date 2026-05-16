@@ -693,8 +693,7 @@ assign scale_clock_enable = (clk_scale == 5'd1);
   logic        is_srg_instr;
   logic        is_asg_instr;
   logic        is_mem_ref;
-  logic        is_jmp;
-  logic        is_jsb;
+  logic        is_jmp, is_jsb;
   logic        msc0, msc1,msc2,msc3,msc4,msc5,msc6,msc7,lsc0,lsc1,lsc2,lsc3,lsc4,lsc5,lsc6,lsc7;
   logic        skip_on_overflow;
   logic        sfs_intp, sfc_intp, skip_intp, skip_io, skip_dma6, skip_dma7;
@@ -796,7 +795,7 @@ assign scale_clock_enable = (clk_scale == 5'd1);
     sir = (tstate == T5);
     enf = (tstate == T2);
     crs = clc & msc0 & lsc0 | popio;
-    interrupt = (irq10 | irq11 | irq12  | irq16 | irq17 | irq20| irq22 | irq23 | dma_1_irq_ff | dma_2_irq_ff)  & Interrupt_System_Enable & Interrupt_Control;
+    interrupt = ((irq10 | irq11 | irq12  | irq16 | irq17 | irq20| irq22 | irq23 | dma_1_irq_ff | dma_2_irq_ff )  & Interrupt_System_Enable & Interrupt_Control) |  (Interrupt_System_Enable & mp_irq);
     if ((M >= 15'o77700) && loader_protected_switch) begin
       unprotected = 1'b0;
     end else begin
@@ -829,6 +828,7 @@ always @* begin
             6'o02: iob_in_internal = dma_1_reg_selector?{ 2'b00, dma_1_block_length[13:0]}:{16'o000000};
             6'o03: iob_in_internal = dma_2_reg_selector?{ 2'b00, dma_2_block_length[13:0]}:{16'o000000};
             6'o04: iob_in_internal = {10'o0000, central_interrupt_register}; 
+            6'o05: iob_in_internal = mp_violation_register;
             default: iob_in_internal = 16'o000000;
 
         endcase
@@ -1003,7 +1003,7 @@ end
 
 // MEMORY PROTECT
 
-logic [14:0] mp_violation_register;
+logic [15:0] mp_violation_register;
 logic [14:0] mp_fence_register;
 
 logic mp_jmp_ptotect_ff;
@@ -1011,43 +1011,25 @@ logic mp_iak_ff;
 logic mp_control_ff;
 logic mp_interrupt_ff;
 logic mp_interrupt_request_ff;
-logic mp_iir_ff;
-logic mp_iir_ff;
-logic mp_rsds_ff;
 logic [1:0] mp_indirect_counter;
 logic mp_mev;
-logic mp_inhibit_access;
 logic mp_sir_d;
 logic mp_sir_negedge;
 logic mp_sc_05;
-logic mp_sc_01;
-logic mp_iov;
-logic mp_mc35a_13;
-logic mp_mc43a_14;
-logic mp_mc35b_9;
-logic mp_mc22a_13;
-logic mp_mc44d_13;
-logic mp_mc44c_10;
-logic mp_mc34a_13;
-logic mp_mrv;
 logic mp_prl_out;
 logic mp_prh_in;
 logic mp_irq;
-logic mp_iac;
+logic mp_inhibit_execution;
 
 always_comb begin
-  mp_mev = (M >= mp_fence_register);
-  mp_jmp = (TR[]);
+  mp_mev = (M < mp_fence_register);
   mp_sir_negedge = ~sir & mp_sir_d;
   mp_prh_in = 1'b1;
 
-  mp_mc34a_13 = ~( is_io_instr & (mp_iak_ff | ~mp_control_ff | scl1 & scm0))
-  mp_sc_05 = scl5 & scm0 & is_io_instr;
+  mp_sc_05 = lsc5 & msc0 & is_io_instr;
   mp_prl_out = mp_prh_in & ~mp_interrupt_ff;
-  mp_mrv = 
-  mp_iov = 
-  mp_iac = 
   mp_irq = mp_interrupt_request_ff;
+  
 end
 
 always_ff @(posedge clk or popio) begin
@@ -1055,35 +1037,92 @@ always_ff @(posedge clk or popio) begin
     mp_control_ff <= 1'b0;   
     mp_fence_register <= 15'o00000; 
     mp_interrupt_request_ff <= 1'b0;
+    mp_violation_register <= 16'o100000;
   end else if (scale_clock_enable) begin
 
     mp_sir_d <= sir;
+    if (tstate == T0) mp_inhibit_execution <= 1'b0; 
+    if (mp_control_ff) begin 
+      //$display("TIME %020t Fetch is_io_instr=%d, phase=%d, tstate=%d", $time, is_io_instr, phase, tstate);  
+      case (phase) 
+        PH_FETCH: begin
+          mp_indirect_counter <= 2'd0;  
+          if (is_io_instr) begin
+            if (mp_iak_ff) begin
+              if (is_halt_instr) begin
+                if (tstate == T3) mp_control_ff <= 1'b0; 
+              end
+            end 
+            else begin
+              if (is_halt_instr) begin
+                if (tstate == T3) mp_violation_register <= {1'b0, M};
+                if (tstate == T2) begin 
+                  mp_inhibit_execution <= 1'b1; 
+                  mp_interrupt_ff <= 1'b1;
+                end 
+              end 
+              else begin
+                if (~(lsc1 & msc0)) begin
+                  if (tstate == T3) mp_violation_register <={1'b0, M};
+                  if (tstate == T2) begin 
+                    mp_inhibit_execution <= 1'b1;  
+                    mp_interrupt_ff <= 1'b1;
+                  end              
+                end             
+              end
+            end
+          end
+          else begin
+            //$display("TIME %020t Fetch is_io_instr=%d", $time, is_io_instr);
+            if (tstate == T3) begin
+              mp_violation_register <= {1'b0, M};
+
+              //$display("TIME %020t Saving M in Violation Register", $time);
+            end
+            if (mp_iak_ff) begin
+              if (tstate == T2) mp_control_ff <= 1'b0;  
+            end 
+            else begin
+              if (mp_jmp_ptotect_ff) begin
+                if (mp_mev) begin
+                  if (tstate == T2) begin
+                    mp_inhibit_execution <= 1'b1;   
+                    mp_interrupt_ff <= 1'b1;
+                  end
+                end
+              end
+            end
+          end
+          
+        end
+        PH_INDIRECT: begin    
+          if (tstate == T5) mp_indirect_counter <= mp_indirect_counter + 2'd1; 
+        end
+        default: begin
+          
+        end
+      endcase
+    end
 
     if (mp_sir_negedge) mp_iak_ff <= 1'b0;
     else if (iak) mp_iak_ff <= 1'b1;
 
 
-    if (iak | ( )) mp_jmp_ptotect_ff <= 1'b0;
-    else if (is_jmp & (tstate == T4) & ) mp_jmp_ptotect_ff 1'b1;
+    if (iak | (tstate == T3)) mp_jmp_ptotect_ff <= 1'b0;
+    else if (is_jmp & (tstate == T4)) mp_jmp_ptotect_ff <= 1'b1;
 
-    if (stc & mp_sc_0) mp_control_ff <= 1'b1;
+    if (stc & mp_sc_05) begin 
+      $display("TIME %020t Setting mp_control_ff", $time);
+      mp_control_ff <= 1'b1;
+    end
 
 
     if (iak) mp_interrupt_ff <= 1'b0;
-    else if (mp_mrv & ~dma_phase) mp_interrupt_ff <= 1'b1;
-
-    if () iir_ff <= 1'b0;
-    else if (mp_mrv & ~dma_phase) 1 <= 1'b1;
-
-    if (phase == PH_FETCH) mp_indirect_counter <= 2'd0;
-    if ((phase == PH_INDIRECT) & sir) mp_indirect_counter <= mp_indirect_counter + 2'd1;  
-
 
     if (mp_sc_05 & ioo) mp_fence_register <= iob_out[14:0];
 
-    if () mp_violation_register <= M;
 
-    if ((tstate == T2) | mp_iac) mp_interrupt_request_ff <= 1'b0;
+    if (tstate == T2) mp_interrupt_request_ff <= 1'b0;
     else if (mp_prh_in & mp_interrupt_ff & sir) mp_interrupt_request_ff <= 1'b1;
 
   end
@@ -1489,6 +1528,9 @@ endfunction
 
       if (preset_btn) begin
         phase  <= PH_FETCH;
+        mp_violation_register <= 16'o100000;
+        mp_control_ff <= 1'b0;
+        mp_fence_register <= 15'o00000; 
         tstate <= T0;
         Interrupt_System_Enable    <= 1'b0;
         RUN    <= 1'b0;
@@ -1655,137 +1697,141 @@ endfunction
               // FETCH phase
               // ---------------------------------------------------------------
               PH_FETCH: begin
-                unique case (tstate)
-                  T0: begin
-                    // Load the program counter into M before the memory read.
-                    //M <= P;
-                    CARRY <= 1'b0;
+                if (~mp_inhibit_execution) begin
+                  unique case (tstate)
+                    T0: begin
+                      // Load the program counter into M before the memory read.
+                      //M <= P;
+                      CARRY <= 1'b0;
 
 
                   end
 
-                  T1: begin
-                    // Synchronous memory model: the instruction is read into T.
-                    if (M== 15'o00000)
-                      TR <= A;
-                    else if (M== 15'o00001)
-                      TR <= B;
-                    else
-                      TR <= mem_rdata;
-                  end
-
-                  T2: begin
-                    // Latch instruction field T[15:10] into the I register.
-                    IR <= TR[15:10];
-                  end
-
-                  T3: begin
-                    if (~eau_mem_ref) begin
-                      if(set_interrupt_system_enable) begin
-                        Interrupt_System_Enable <= 1'b1;
+                    T1: begin
+                      // Synchronous memory model: the instruction is read into T.
+                      if (M== 15'o00000) 
+                      begin
+                        TR <= A;
+                        IR <= A[15:10];
                       end
-                      if (set_overflow) begin
-                        OVERFLOW <= 1'b1;
+                      else if (M== 15'o00001)
+                      begin
+                        TR <= B;
+                        IR <= B[15:10];
                       end
-                      if (is_mac_instr & TR[4] & ~TR[11]) begin
-                        // Arithmetic shift TR[9] is direction
-                        do_eau_arithmetic_shift(TR[9],TR[3:0]);
-                      end
-                      if (is_mac_instr & TR[5] & ~TR[11]) begin
-                        // Logic shift TR[9] is direction
-                        do_eau_logic_shift(TR[9],TR[3:0]);
-                      end
-                      if (is_mac_instr & TR[6] & ~TR[11]) begin
-                        // Rotate TR[9] is direction
-                        do_eau_rotate(TR[9],TR[3:0]);
-                      end                    
-                      if (is_srg_instr & TR[9]) begin
-                        do_shift_rotate(TR[8:6],1'b1);
-                      end
-                      if  (is_srg_instr & ~TR[9] & ((TR[8:6] == 3'o5) || (TR[8:6] == 3'o6))) begin
-                        do_shift_rotate(TR[8:6],1'b0);
-                      end
-                      if (is_asg_instr) begin
-                        if (TR[11] == 1'b0)
-                          unique case (TR[9:8])
-                            2'o0:begin
-                              // No operation
-                            end
-                            2'o1: // Clear
-                              A<=16'o000000;
-                            2'o2: // Complement
-                              A<=~A;
-                            2'o3: // Set
-                              A<=16'o177777;
-                          endcase
-
-                        else
-                          unique case (TR[9:8])
-                            2'o0:begin
-                              // No operation
-                            end
-                            2'o1: // Clear
-                              B<=16'o000000;
-                            2'o2: // Complement
-                              B<=~B;
-                            2'o3: // Set
-                              B<=16'o177777;
-                          endcase
-                        if (TR[5]) begin
-                          if (TR[0]==1'b0 & EXTEND == 1'b0)
-                            CARRY <= 1'b1;
-                          else if (TR[0] == 1'b1 & EXTEND == 1'b1)
-                            CARRY <= 1'b1;
-                        end
-                        unique case (TR[7:6])
-                          2'b00:begin
-                            // no operation
-                          end
-                          2'b01:
-                            EXTEND <= 1'b0;
-                          2'b10:
-                            EXTEND <= ~EXTEND;
-                          2'b11:
-                            EXTEND <= 1'b1;
-                        endcase
+                      else begin
+                        TR <= mem_rdata;
+                        IR <= mem_rdata[15:10];
                       end
                     end
-                  end
 
-                  T4: begin
-                    if (~eau_mem_ref) begin
-                      if (is_asg_instr) begin
-                        if (TR[11] == 1'b0) begin
-                          if (((~A[15] & TR[4] | ~A[0] & TR[3]) & ~TR[0]) | ((~(~A[15] & TR[4] | ~A[0] & TR[3])) & TR[0] & (TR[3] | TR[4]) ))
-                            CARRY <= 1'b1;
+                    T3: begin
+                      if (~eau_mem_ref) begin
+                        if(set_interrupt_system_enable) begin
+                          Interrupt_System_Enable <= 1'b1;
                         end
-                        else begin
-                          if (((~B[15] & TR[4] | ~B[0] & TR[3]) & ~TR[0]) | ((~(~B[15] & TR[4] | ~B[0] & TR[3])) & TR[0] & (TR[3] | TR[4])))
-                            CARRY <= 1'b1;
+                        if (set_overflow) begin
+                          OVERFLOW <= 1'b1;
                         end
+                        if (is_mac_instr & TR[4] & ~TR[11]) begin
+                          // Arithmetic shift TR[9] is direction
+                          do_eau_arithmetic_shift(TR[9],TR[3:0]);
+                        end
+                        if (is_mac_instr & TR[5] & ~TR[11]) begin
+                          // Logic shift TR[9] is direction
+                          do_eau_logic_shift(TR[9],TR[3:0]);
+                        end
+                        if (is_mac_instr & TR[6] & ~TR[11]) begin
+                          // Rotate TR[9] is direction
+                          do_eau_rotate(TR[9],TR[3:0]);
+                        end                    
+                        if (is_srg_instr & TR[9]) begin
+                          do_shift_rotate(TR[8:6],1'b1);
+                        end
+                        if  (is_srg_instr & ~TR[9] & ((TR[8:6] == 3'o5) || (TR[8:6] == 3'o6))) begin
+                          do_shift_rotate(TR[8:6],1'b0);
+                        end
+                        if (is_asg_instr) begin
+                          if (TR[11] == 1'b0)
+                            unique case (TR[9:8])
+                              2'o0:begin
+                                // No operation
+                              end
+                              2'o1: // Clear
+                                A<=16'o000000;
+                              2'o2: // Complement
+                                A<=~A;
+                              2'o3: // Set
+                                A<=16'o177777;
+                            endcase
 
-                        if (TR[2]) begin
-                          if (TR[11] == 1'b0) begin
-                            if (A == 16'o177777) begin
+                          else
+                            unique case (TR[9:8])
+                              2'o0:begin
+                                // No operation
+                              end
+                              2'o1: // Clear
+                                B<=16'o000000;
+                              2'o2: // Complement
+                                B<=~B;
+                              2'o3: // Set
+                                B<=16'o177777;
+                            endcase
+                          if (TR[5]) begin
+                            if (TR[0]==1'b0 & EXTEND == 1'b0)
+                              CARRY <= 1'b1;
+                            else if (TR[0] == 1'b1 & EXTEND == 1'b1)
+                              CARRY <= 1'b1;
+                          end
+                          unique case (TR[7:6])
+                            2'b00:begin
+                              // no operation
+                            end
+                            2'b01:
+                              EXTEND <= 1'b0;
+                            2'b10:
+                              EXTEND <= ~EXTEND;
+                            2'b11:
                               EXTEND <= 1'b1;
-                            end
-                            if (A == 16'o077777) begin
-                              OVERFLOW <= 1'b1;
-                            end
-                            A <= A + 16'o000001;
+                          endcase
+                        end
+                      end
+                    end
+
+                    T4: begin
+                      if (~eau_mem_ref) begin
+                        if (is_asg_instr) begin
+                          if (TR[11] == 1'b0) begin
+                            if (((~A[15] & TR[4] | ~A[0] & TR[3]) & ~TR[0]) | ((~(~A[15] & TR[4] | ~A[0] & TR[3])) & TR[0] & (TR[3] | TR[4]) ))
+                              CARRY <= 1'b1;
                           end
                           else begin
-                            if (B == 16'o177777) begin
-                              EXTEND <= 1'b1;
-                            end
-                            if (B == 16'o077777) begin
-                              OVERFLOW <= 1'b1;
-                            end
-                            B <= B + 16'o000001;
+                            if (((~B[15] & TR[4] | ~B[0] & TR[3]) & ~TR[0]) | ((~(~B[15] & TR[4] | ~B[0] & TR[3])) & TR[0] & (TR[3] | TR[4])))
+                              CARRY <= 1'b1;
                           end
 
-                        end
-          
+                          if (TR[2]) begin
+                            if (TR[11] == 1'b0) begin
+                              if (A == 16'o177777) begin
+                                EXTEND <= 1'b1;
+                              end
+                              if (A == 16'o077777) begin
+                                OVERFLOW <= 1'b1;
+                              end
+                              A <= A + 16'o000001;
+                            end
+                            else begin
+                              if (B == 16'o177777) begin
+                                EXTEND <= 1'b1;
+                              end
+                              if (B == 16'o077777) begin
+                                OVERFLOW <= 1'b1;
+                              end
+                              B <= B + 16'o000001;
+                            end
+
+                          end
+            
 
                       end
                       if (skip_io) begin
@@ -1816,125 +1862,126 @@ endfunction
                     end  
                   end
 
-                  T5: begin
-                    if (~eau_mem_ref) begin
-                      if (is_srg_instr & TR[4]) begin
-                        do_shift_rotate(TR[2:0], 1'b1);
-                      end
-                      if  (is_srg_instr & ~TR[4] & ((TR[2:0] == 3'o5) || (TR[2:0] == 3'o6))) begin
-                        do_shift_rotate(TR[2:0],1'b0);
-                      end
-                      if (is_asg_instr & TR[1]) begin
-                          if (TR[11] == 1'b0) begin
-                            if (A == 16'o000000 & ~TR[0] || A!=16'o000000 & TR[0])
-                              CARRY <= 1'b1;
-                          end
-                          else begin
-                            if (B == 16'o000000 & ~TR[0] || B != 16'o000000 & TR[0])
-                              CARRY <= 1'b1;
-                          end
-                      end
-                      if (is_asg_instr & ~TR[1] & ~TR[3] & ~TR[4] & ~TR[5] & TR[0]) begin // unconditional skip
-                        CARRY <= 1'b1;
-                      end
-                      if (is_io_instr) begin
-                        case (TR[8:6])
-                          3'o4: begin // MIA
-                            if (IR[1] == 1'b0) begin
-                              A <= A | iob_in_internal;
+                    T5: begin
+                      if (~eau_mem_ref) begin
+                        if (is_srg_instr & TR[4]) begin
+                          do_shift_rotate(TR[2:0], 1'b1);
+                        end
+                        if  (is_srg_instr & ~TR[4] & ((TR[2:0] == 3'o5) || (TR[2:0] == 3'o6))) begin
+                          do_shift_rotate(TR[2:0],1'b0);
+                        end
+                        if (is_asg_instr & TR[1]) begin
+                            if (TR[11] == 1'b0) begin
+                              if (A == 16'o000000 & ~TR[0] || A!=16'o000000 & TR[0])
+                                CARRY <= 1'b1;
                             end
                             else begin
-                              B <= B | iob_in_internal;
+                              if (B == 16'o000000 & ~TR[0] || B != 16'o000000 & TR[0])
+                                CARRY <= 1'b1;
                             end
-                          end
-                          3'o5: begin //LIA
-                            if (IR[1] == 1'b0) begin
-                              A <= iob_in_internal;
+                        end
+                        if (is_asg_instr & ~TR[1] & ~TR[3] & ~TR[4] & ~TR[5] & TR[0]) begin // unconditional skip
+                          CARRY <= 1'b1;
+                        end
+                        if (is_io_instr) begin
+                          case (TR[8:6])
+                            3'o4: begin // MIA
+                              if (IR[1] == 1'b0) begin
+                                A <= A | iob_in_internal;
+                              end
+                              else begin
+                                B <= B | iob_in_internal;
+                              end
                             end
-                            else begin
-                              B <= iob_in_internal;
+                            3'o5: begin //LIA
+                              if (IR[1] == 1'b0) begin
+                                A <= iob_in_internal;
+                              end
+                              else begin
+                                B <= iob_in_internal;
+                              end
                             end
+                            default: begin
+                            end
+                          endcase
+                        end
+                        case (TR[5:0])
+                          6'o01: begin
+                            //sw <= iob_out;
                           end
                           default: begin
+                            
                           end
                         endcase
                       end
-                      case (TR[5:0])
-                        6'o01: begin
-                          //sw <= iob_out;
-                        end
-                        default: begin
-                          
-                        end
-                      endcase
-                    end
-                  end
-
-                  T7: begin
-                    // FETCH completes at T7.
-                    // Normally P advances to the next sequential instruction.
-                    if (eau_mem_ref) begin
-                      M <= TR[14:0];
-                    end
-                    else if (is_halt_instr) begin
-                      RUN   <= 1'b0;
-                      M <= P + 15'o00001;
-                      P <= P + 15'o00001;
-                      //phase <= PH_FETCH;
-                    end
-                    // HALT is recognized already here in FETCH/T7.
-                    else if (is_srg_instr | is_asg_instr | is_io_instr) begin
-                      P <= P + {14'o00000, CARRY} + 15'o00001;
-                      M <= P + {14'o00000, CARRY} + 15'o00001;
-                    end 
-                    else if (is_mac_instr) begin // EAU instructions
- 
-                      eau_mpy <= 1'b0;
-                      eau_div <= 1'b0;
-                      eau_dld <= 1'b0;
-                      eau_dst <= 1'b0;
-                      if (TR[7] & ~TR[11]) eau_mpy <= 1'b1;
-                      if (TR[8] & ~TR[11]) eau_div <= 1'b1;
-                      if (TR[7] & TR[11]) eau_dld <= 1'b1;
-                      if (TR[8] & TR[11]) eau_dst <= 1'b1;
-
-                      M <= P + 15'o00001;
-                      P <= P + 15'o00001;
-                      
-                    end
-                    // A direct JMP completes entirely in the fetch phase.
-                    else if (is_jmp && !ind) begin
-                      M     <= direct_addr;
-                      P     <= direct_addr;
-                      //phase <= PH_FETCH;
-                    end
-                    // An indirect JMP proceeds to the indirect phase.
-                    else if (is_jmp && ind) begin
-                      M     <= direct_addr;
-                      //phase <= PH_INDIRECT;
-                    end
-                    // Other indirect memory-reference instructions
-                    // also proceed through the indirect phase.
-                    else if (ind) begin
-                      //P <= P + 15'o00001;
-                      M     <= direct_addr;
-                      //phase <= PH_INDIRECT;
                     end
 
-                    else begin
-                      // Direct-addressed instructions get their effective
-                      // address in M and then move to execute.
+                    T7: begin
+                      // FETCH completes at T7.
+                      // Normally P advances to the next sequential instruction.
+                      if (eau_mem_ref) begin
+                        M <= TR[14:0];
+                      end
+                      else if (is_halt_instr) begin
+                        RUN   <= 1'b0;
+                        M <= P + 15'o00001;
+                        P <= P + 15'o00001;
+                        //phase <= PH_FETCH;
+                      end
+                      // HALT is recognized already here in FETCH/T7.
+                      else if (is_srg_instr | is_asg_instr | is_io_instr) begin
+                        P <= P + {14'o00000, CARRY} + 15'o00001;
+                        M <= P + {14'o00000, CARRY} + 15'o00001;
+                      end 
+                      else if (is_mac_instr) begin // EAU instructions
+  
+                        eau_mpy <= 1'b0;
+                        eau_div <= 1'b0;
+                        eau_dld <= 1'b0;
+                        eau_dst <= 1'b0;
+                        if (TR[7] & ~TR[11]) eau_mpy <= 1'b1;
+                        if (TR[8] & ~TR[11]) eau_div <= 1'b1;
+                        if (TR[7] & TR[11]) eau_dld <= 1'b1;
+                        if (TR[8] & TR[11]) eau_dst <= 1'b1;
 
-                      M     <= direct_addr;
-                      //phase <= PH_EXECUTE;
+                        M <= P + 15'o00001;
+                        P <= P + 15'o00001;
+                        
+                      end
+                      // A direct JMP completes entirely in the fetch phase.
+                      else if (is_jmp && !ind) begin
+                        M     <= direct_addr;
+                        P     <= direct_addr;
+                        //phase <= PH_FETCH;
+                      end
+                      // An indirect JMP proceeds to the indirect phase.
+                      else if (is_jmp && ind) begin
+                        M     <= direct_addr;
+                        //phase <= PH_INDIRECT;
+                      end
+                      // Other indirect memory-reference instructions
+                      // also proceed through the indirect phase.
+                      else if (ind) begin
+                        //P <= P + 15'o00001;
+                        M     <= direct_addr;
+                        //phase <= PH_INDIRECT;
+                      end
+
+                      else begin
+                        // Direct-addressed instructions get their effective
+                        // address in M and then move to execute.
+
+                        M     <= direct_addr;
+                        //phase <= PH_EXECUTE;
+                      end
+
                     end
 
-                  end
-
-                  default: begin
-                    // The remaining T-states are not used in fetch yet.
-                  end
-                endcase
+                    default: begin
+                      // The remaining T-states are not used in fetch yet.
+                    end
+                  endcase
+                end
               end
 
               // ---------------------------------------------------------------
@@ -2450,7 +2497,10 @@ endfunction
                           A <= A & TR;
                         4'o03: //JSB - Jump to subroutine
                           if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
-                            mem_we <= 1'b1;
+                            if (mp_control_ff & mp_mev) begin
+                              mp_interrupt_ff <= 1'b1;   
+                            end
+                            else mem_we <= 1'b1;
                         4'o04: // XOR
                           A <= A ^ TR;
                         4'o05: // JMP - Jump is handled in FETCH.
@@ -2461,7 +2511,10 @@ endfunction
                           A <= A | TR;
                         4'o07:  // ISZ - Inrement memory and skip if zero
                           if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
-                            mem_we <= 1'b1;
+                            if (mp_control_ff & mp_mev) begin
+                              mp_interrupt_ff <= 1'b1;   
+                            end
+                            else mem_we <= 1'b1;
                         4'o10: // ADA - Add to A
                         begin
                           add_sum = {1'b0, A} + {1'b0, TR};
@@ -2492,10 +2545,16 @@ endfunction
                           B <= TR;
                         4'o16:
                           if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
-                            mem_we <= 1'b1;
+                            if (mp_control_ff & mp_mev) begin
+                              mp_interrupt_ff <= 1'b1;   
+                            end
+                            else mem_we <= 1'b1;
                         4'o17:
                           if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
-                            mem_we <= 1'b1;
+                            if (mp_control_ff & mp_mev) begin
+                              mp_interrupt_ff <= 1'b1;   
+                            end
+                            else mem_we <= 1'b1;
                       endcase
                     end
                   end

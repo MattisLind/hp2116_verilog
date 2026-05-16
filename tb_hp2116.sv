@@ -2010,19 +2010,19 @@ initial begin
     // Wait for the prompt and reply.
     // The example response here is only an example — replace it with the
     // exact response expected by the diagnostic program.
-    uart_expect_and_respond(
+    /*uart_expect_and_respond(
         uart_tx,
         uart_rx,
         "\r\nSET TIME\r\n",
         "\r",
         4_000ns,
         20_000ns
-    );
-    /*
+    );*/
+
     uart_expect_and_respond(
         uart_tx,
         uart_rx,
-        "\r\n2116, DMA, NO MPRT, 32K MEMORY\r\n\r\nLINE PRINTER (NO.,SC)........",
+        "\r\n2116, DMA, MPRT, 32K MEMORY\r\n\r\nLINE PRINTER (NO.,SC)........",
         "NONE\r",
         4_000ns,
         20_000ns
@@ -2044,7 +2044,40 @@ initial begin
         {DSN, "\r"},
         4_000ns,
         20_000ns
-    );*/
+    );
+    /*
+    uart_expect_string(
+      uart_tx,
+      "\r\n\r\n\r\nHP 2100 SERIES MEMORY PROTECT DIAGNOSTIC\r\nH07. PRESS PRESET (EXT/INT), RUN\r\nH13. PRESS HALT, PRESET(INT), RUN \r\nIN LESS THAN 15 SEC.\r\n"
+    );
+      $display("TIME %020t Pressing HALT, PRESET and then RUN - mp_control_ff=%d", $time, cpu.mp_control_ff);
+      #(30ms);
+      $display("TIME %020t Pressing HALT now - mp_control_ff=%d", $time, cpu.mp_control_ff);
+      pulse_btn(halt_btn);
+      #10;
+      $display("TIME %020t Pressing PRESET now - mp_control_ff=%d", $time, cpu.mp_control_ff);
+      pulse_btn(preset_btn); 
+      #10;
+      $display("TIME %020t Pressing RUN now - mp_control_ff=%d", $time, cpu.mp_control_ff);
+      pulse_btn(run_btn);
+      #10;      */   
+/*
+//498679165000
+Code executed after waiting for 15 seconds. Is it checking the contents of the viloation register.
+TIME        2014396235000                    A=177777 B=000000 EXTEND=1 OVERFLOW=0 IE=1 076735 002006  INA, SZA            
+TIME        2014396395000  M=002361 D=102100 A=000000 B=000000 EXTEND=1 OVERFLOW=0 IE=1 076737 126730  JMP 000730,I        
+TIME        2014396715000                    A=000000 B=000000 EXTEND=1 OVERFLOW=0 IE=1 002361 102100  STF 00              
+TIME        2014397035000  M=002367 D=000000 A=000000 B=000000 EXTEND=1 OVERFLOW=0 IE=1 002360 114704  JSB 000704,I        
+TIME        2014397515000                    A=000000 B=000000 EXTEND=1 OVERFLOW=0 IE=1 002370 103100  CLF 00              
+TIME        2014397675000                    A=000000 B=000000 EXTEND=1 OVERFLOW=0 IE=0 002371 102505  LIA 05              
+TIME        2014397835000                    A=002361 B=000000 EXTEND=1 OVERFLOW=0 IE=0 002372 002020  SSA                 
+TIME        2014397995000  M=003613 D=000000 A=002361 B=000000 EXTEND=1 OVERFLOW=0 IE=0 002374 114677  JSB 000677,I        
+TIME        2014398475000                    A=002361 B=000000 EXTEND=1 OVERFLOW=0 IE=0 003614 103100  CLF 00              
+TIME        2014398635000                    A=002361 B=000000 EXTEND=1 OVERFLOW=0 IE=0 003615 007400  CCB                 
+TIME        2014398795000  M=003613 D=002375 A=002361 B=177777 EXTEND=1 OVERFLOW=0 IE=0 003616 047613  ADB 001613          
+TIME        2014399115000  M=000372 D=000373 A=002361 B=002374 EXTEND=1 OVERFLOW=0 IE=0 003617 060372  LDA 000372     
+*/
+
     /*if (DSN=="151302") begin
       uart_expect_and_respond(
         uart_tx,
@@ -2326,6 +2359,7 @@ end
           else if (saved_A == 16'o151302) sw <= 16'o000022;
           else if (saved_A == 16'o103301) sw <= 16'o100011;
           else if (saved_A == 16'o105102) sw <= 16'o000020;
+          else if (saved_A == 16'o102001) sw <= 16'o000400;
           else sw <= 16'o000000;
           $display("sw=%06o", sw);
           // Wait a little before pulsing the RUN button
@@ -2356,6 +2390,11 @@ end
         pulse_btn(run_btn);
         #1;
       end else if ((cpu.TR == 16'o102024) && (DSN=="104003" || DSN=="143300" || DSN == "103301"|| DSN == "105102" || DSN == "146200")) begin 
+        pulse_btn(preset_btn);
+        #1
+        pulse_btn(run_btn);
+        $display("TIME %0t: PRESET and then RUN", $time);
+      end else if ((cpu.TR == 16'o102007) && (DSN=="102001")) begin 
         pulse_btn(preset_btn);
         #1
         pulse_btn(run_btn);
@@ -2467,11 +2506,13 @@ end
         #1;
         pulse_btn(run_btn);
         #1;        
-      end else if (DSN == "151302") begin 
-        
+      end else if (DSN == "151302" || DSN=="102001") begin         
         if (cpu.P == 15'o076762) begin //TIME 449412385000: CPU HALTED P=076762 IR=000053 TR=126741 A=077341 B=017074
           $display("TIME %0t: Halting temporarily in DSN=151301 P=%05o TR=%06o - will restart", $time, cpu.P, cpu.TR);
         end  
+        else if (cpu.P == 15'o076734 && cpu.TR==16'o026733 && DSN=="102001") begin
+           $display("TIME %0t: Halting temporarily in DSN=102001 P=%05o TR=%06o - will restart because of expect script", $time, cpu.P, cpu.TR, DSN);  
+        end
         else begin
           $display("Diag failed", $time);
           $finish;          
