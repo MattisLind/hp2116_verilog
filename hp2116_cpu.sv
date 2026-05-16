@@ -87,6 +87,7 @@ module hp2116_cpu #(
   logic [14:0] P;          // Program counter
   logic [14:0] M;          // Memory address register
   logic [4:0] clk_scale;
+  logic [5:0] central_interrupt_register; // should not be present on a 2116 but since SimH is cheating I have to do the same to be compatible.
   logic        EXTEND;
   logic        OVERFLOW;
   logic        CARRY;
@@ -643,7 +644,7 @@ hp12845a lpt (
   .jumper_w9("IN")   
 );
 
-assign scale_clock_enable = (clk_scale == 5'd0);
+assign scale_clock_enable = (clk_scale == 5'd1);
 
   //--------------------------------------------------------------------------
   // Helper: next T-state
@@ -718,7 +719,7 @@ assign scale_clock_enable = (clk_scale == 5'd0);
     // HALT decodes as 1020xx. Since IR only stores bits 15..10, it is enough
     // to compare against the top field.
 
-    is_io_instr = (IR[5:2] == 4'o10) & IR[0];
+    is_io_instr = (IR[5:2] == 4'o10) & IR[0] & (phase== PH_FETCH);
     is_mac_instr = (IR[5:2] == 4'o10) & ~IR[0];
     is_srg_instr = (IR[5:2] == 4'o00) & ~IR[0];  // Shift / Rotate group
     is_asg_instr = (IR[5:2] == 4'o00) & IR[0];  // Alter / Skip group
@@ -827,6 +828,7 @@ always @* begin
             6'o01: iob_in_internal = sw;
             6'o02: iob_in_internal = dma_1_reg_selector?{ 2'b00, dma_1_block_length[13:0]}:{16'o000000};
             6'o03: iob_in_internal = dma_2_reg_selector?{ 2'b00, dma_2_block_length[13:0]}:{16'o000000};
+            6'o04: iob_in_internal = {10'o0000, central_interrupt_register}; 
             default: iob_in_internal = 16'o000000;
 
         endcase
@@ -996,6 +998,97 @@ end
   end
   endtask
 
+
+
+
+// MEMORY PROTECT
+
+logic [14:0] mp_violation_register;
+logic [14:0] mp_fence_register;
+
+logic mp_jmp_ptotect_ff;
+logic mp_iak_ff;
+logic mp_control_ff;
+logic mp_interrupt_ff;
+logic mp_interrupt_request_ff;
+logic mp_iir_ff;
+logic mp_iir_ff;
+logic mp_rsds_ff;
+logic [1:0] mp_indirect_counter;
+logic mp_mev;
+logic mp_inhibit_access;
+logic mp_sir_d;
+logic mp_sir_negedge;
+logic mp_sc_05;
+logic mp_sc_01;
+logic mp_iov;
+logic mp_mc35a_13;
+logic mp_mc43a_14;
+logic mp_mc35b_9;
+logic mp_mc22a_13;
+logic mp_mc44d_13;
+logic mp_mc44c_10;
+logic mp_mc34a_13;
+logic mp_mrv;
+logic mp_prl_out;
+logic mp_prh_in;
+logic mp_irq;
+logic mp_iac;
+
+always_comb begin
+  mp_mev = (M >= mp_fence_register);
+  mp_jmp = (TR[]);
+  mp_sir_negedge = ~sir & mp_sir_d;
+  mp_prh_in = 1'b1;
+
+  mp_mc34a_13 = ~( is_io_instr & (mp_iak_ff | ~mp_control_ff | scl1 & scm0))
+  mp_sc_05 = scl5 & scm0 & is_io_instr;
+  mp_prl_out = mp_prh_in & ~mp_interrupt_ff;
+  mp_mrv = 
+  mp_iov = 
+  mp_iac = 
+  mp_irq = mp_interrupt_request_ff;
+end
+
+always_ff @(posedge clk or popio) begin
+  if (popio) begin
+    mp_control_ff <= 1'b0;   
+    mp_fence_register <= 15'o00000; 
+    mp_interrupt_request_ff <= 1'b0;
+  end else if (scale_clock_enable) begin
+
+    mp_sir_d <= sir;
+
+    if (mp_sir_negedge) mp_iak_ff <= 1'b0;
+    else if (iak) mp_iak_ff <= 1'b1;
+
+
+    if (iak | ( )) mp_jmp_ptotect_ff <= 1'b0;
+    else if (is_jmp & (tstate == T4) & ) mp_jmp_ptotect_ff 1'b1;
+
+    if (stc & mp_sc_0) mp_control_ff <= 1'b1;
+
+
+    if (iak) mp_interrupt_ff <= 1'b0;
+    else if (mp_mrv & ~dma_phase) mp_interrupt_ff <= 1'b1;
+
+    if () iir_ff <= 1'b0;
+    else if (mp_mrv & ~dma_phase) 1 <= 1'b1;
+
+    if (phase == PH_FETCH) mp_indirect_counter <= 2'd0;
+    if ((phase == PH_INDIRECT) & sir) mp_indirect_counter <= mp_indirect_counter + 2'd1;  
+
+
+    if (mp_sc_05 & ioo) mp_fence_register <= iob_out[14:0];
+
+    if () mp_violation_register <= M;
+
+    if ((tstate == T2) | mp_iac) mp_interrupt_request_ff <= 1'b0;
+    else if (mp_prh_in & mp_interrupt_ff & sir) mp_interrupt_request_ff <= 1'b1;
+
+  end
+end
+
   //--------------------------------------------------------------------------
   // Memory wiring
   //--------------------------------------------------------------------------
@@ -1083,7 +1176,7 @@ endfunction
   logic [15:0] iob_out_dma; 
   always_comb begin
     // DMA combinatorial logic
-    prh_in_to_dma_1 = 1'b1;
+    prh_in_to_dma_1 = mp_prl_out;
     prl_out_from_dma_1 = prh_in_to_dma_1 & ~(Interrupt_System_Enable & dma_1_flag_ff & dma_1_control_ff);
     prh_in_to_dma_2 =prl_out_from_dma_1;
     prl_out_from_dma_2 = prh_in_to_dma_2 & ~(Interrupt_System_Enable & dma_2_flag_ff & dma_2_control_ff);
@@ -2457,35 +2550,49 @@ endfunction
                 if (tstate == T7) begin
                   //phase <= PH_FETCH;
                   P <= P - 15'o00001;
-                  if (dma_1_irq_ff) begin
+                  if (mp_irq) begin
+                    M <= 15'o000005;
+                    central_interrupt_register <= 6'o05;                    
+                  end
+                  else if (dma_1_irq_ff) begin
                     M <= 15'o000006;
+                    central_interrupt_register <= 6'o06;
                   end 
                   else if (dma_2_irq_ff) begin
                     M <= 15'o000007;
+                    central_interrupt_register <= 6'o07;
                   end 
                   else if (irq10) begin
                     M <= 15'o000010;
+                    central_interrupt_register <= 6'o10;
                   end
                   else if (irq11) begin
                     M <= 15'o000011;
+                    central_interrupt_register <= 6'o11;
                   end
                   else if (irq12) begin
-                    M <= 15'o000012;                                    
+                    M <= 15'o000012; 
+                    central_interrupt_register <= 6'o12;                                   
                   end
                   else if (irq16) begin
-                    M <= 15'o000016;                                    
+                    M <= 15'o000016;   
+                    central_interrupt_register <= 6'o16;                                 
                   end
                   else if (irq17) begin
-                    M <= 15'o000017;                                    
+                    M <= 15'o000017;   
+                    central_interrupt_register <= 6'o17;                                 
                   end                   
                   else if (irq20) begin
-                    M <= 15'o000020;                                    
+                    M <= 15'o000020;    
+                    central_interrupt_register <= 6'o20;                                
                   end 
                   else if (irq22) begin
-                    M <= 15'o000022;                                    
+                    M <= 15'o000022;   
+                    central_interrupt_register <= 6'o22;                                 
                   end                                    
                   else if (irq23) begin
-                    M <= 15'o000023;                                    
+                    M <= 15'o000023;                   
+                    central_interrupt_register <= 6'o23;                 
                   end    
                 end
               end

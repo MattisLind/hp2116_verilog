@@ -355,23 +355,26 @@ task automatic stm32_write_cylinder();
         //$display("[%0t] STM32 WRITE: drive=%d cyl=%d head=%d sector=%d", $time, selected_drive, rar_cylinder, rar_head, rar_sector);
         while (1) begin
             // Kodkommentar: Vänta högst 6.4 us på nästa ord.
-            stm32_wait_csr_bit_set_timeout(6, 1200ns, got_word);
+            stm32_wait_csr_bit_set_timeout(6, 500ns, got_word);
 
             if (!got_word) begin
-                //$display("[%0t] STM32 WRITE: timeout at C=%d H=%0d S=%0d W=%0d", $time, rar_cylinder, rar_head, rar_sector, word_count);
+                $display("[%0t] STM32 WRITE: timeout at C=%d H=%0d S=%0d W=%0d", $time, rar_cylinder, rar_head, rar_sector, word_count);
                 // A timeout occured which usually means that the word count in DMA has wrapped.
                 // Potentially it is a overrun condition and then we need to check if there is a STC pulse on the data channel later
                 if (word_count != 0) begin
                     // To actually be able to simulate the overrun condition we need to make sure that filling takes a bit of time.
                     // Would it be possible for overrun to occur when a full sector is written? When is the command channel flag set after writing?
                     disk_fill_rest_of_sector(32'(unsigned'(word_count)));
+                    $display("[%0t] STM32 WRITE: timeout - checking overrun - 1 ", $time);
                     #(3000ns)
+                    $display("[%0t] STM32 WRITE: timeout - checking overrun - 2", $time);
                     stm32_wait_csr_bit_set_timeout(6, 1200ns, got_word);
                     if (got_word) begin
                       stm32_fsmc_read16(STM32_REG_7900_DATA, indata);
                       //overrun = 1'b1;
                       stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_OVERRUN});
                     end
+                    $display("[%0t] STM32 WRITE: timeout - checking overrun - 3", $time);
                 end
 
                 break;
@@ -428,7 +431,7 @@ task automatic stm32_read_cylinder(
             stm32_fsmc_write16(STM32_REG_7900_DATA, data);  // <<-- Before or after the eoc_flag check?
             calculate_rar ("READ");       
             // 
-            stm32_wait_csr_bit_set_timeout(6, 400ns, got_word);
+            stm32_wait_csr_bit_set_timeout(6, 800ns, got_word);
 
             if (!got_word) begin
                 $display("[%0t] STM32 READ: timeout at C=%d H=%d S=%d W=%0d",$time, rar_cylinder, rar_head, rar_sector, word_count);
@@ -1348,6 +1351,7 @@ end
 
       // Make the data stable before the active sampling edge.
       @(negedge clk);
+      @(negedge clk);
       ptr_feedhole = 1'b1;
 
       // Keep feedhole active across a positive edge.
@@ -1355,6 +1359,10 @@ end
       @(negedge clk);
       @(negedge clk);
       @(negedge clk);
+      @(negedge clk);
+      @(negedge clk);
+      @(negedge clk);
+      @(negedge clk);      
       ptr_feedhole = 1'b0;
     end
   endtask
@@ -1368,6 +1376,8 @@ end
       btn = 1'b1;
       @(posedge clk);   // The DUT can sample the button here
       @(negedge clk);   // Wait until after the sampling edge
+      @(posedge clk);   // The DUT can sample the button here
+      @(negedge clk);   // Wait until after the sampling edge      
       btn = 1'b0;
     end
   endtask
@@ -2003,6 +2013,15 @@ initial begin
     uart_expect_and_respond(
         uart_tx,
         uart_rx,
+        "\r\nSET TIME\r\n",
+        "\r",
+        4_000ns,
+        20_000ns
+    );
+    /*
+    uart_expect_and_respond(
+        uart_tx,
+        uart_rx,
         "\r\n2116, DMA, NO MPRT, 32K MEMORY\r\n\r\nLINE PRINTER (NO.,SC)........",
         "NONE\r",
         4_000ns,
@@ -2025,7 +2044,7 @@ initial begin
         {DSN, "\r"},
         4_000ns,
         20_000ns
-    );
+    );*/
     /*if (DSN=="151302") begin
       uart_expect_and_respond(
         uart_tx,
@@ -2101,7 +2120,7 @@ always @(posedge clk or negedge rst_n) begin
   if (!$value$plusargs("TRACE=%s", trace))
     trace <= "NO";
   if (trace == "YES") begin
-    if (rst_n && cpu.run_ff) begin
+    if (rst_n && cpu.run_ff && cpu.scale_clock_enable) begin
         if ((cpu.phase == 3'd0) && (cpu.tstate == 3'd2)) begin
             string a,b, dis, meminfo;
             dis = $sformatf("%-20s", mini_disasm(cpu.TR));
