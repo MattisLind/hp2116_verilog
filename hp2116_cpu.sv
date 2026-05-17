@@ -762,10 +762,11 @@ assign scale_clock_enable = (clk_scale == 5'd0);
     skip_on_overflow = is_io_instr & msc0 & lsc1 & ((TR[8:6] == 3'o3) & OVERFLOW | (TR[8:6] == 3'o2) & ~OVERFLOW);
     set_overflow = set_flag & msc0 & lsc1;
     clear_overflow = clear_flag & msc0 & lsc1;
+    set_interrupt_control = ((phase == PH_FETCH) & ~IR[4] & ~IR[3] & ~IR[2]) | (phase == PH_INDIRECT) | (phase == PH_EXECUTE);
     clear_interrupt_control = (((op4 == 4'o3)| (op4 == 4'o5)) & IR[5] ) | clear_control | set_control | clear_flag | set_flag | phase == PH_INTERRUPT ;
     set_interrupt_system_enable = set_flag & msc0 & lsc0;
     clear_interrupt_system_enable = clear_flag & msc0 & lsc0;
-    iak = (tstate == T0) & (phase == PH_FETCH) & Interrupt_Control;
+    iak = (tstate == T1) & (phase == PH_FETCH) & ~Interrupt_Control;
     is_jmp = (op4 == 4'o5);
     ioo = state34 & (((TR[8:6] == 3'o6) && is_io_instr) | dma_ioo);
     ioi = state45 & ((((TR[8:6] == 3'o5) | (TR[8:6] == 3'o4)) && is_io_instr) | dma_ioi);
@@ -1565,7 +1566,7 @@ endfunction
                     //M <= P;
                     CARRY <= 1'b0;
 
-                    Interrupt_Control <= 1'b1;
+
                   end
 
                   T1: begin
@@ -1698,9 +1699,7 @@ endfunction
                       if (skip_on_overflow) begin
                         CARRY <= 1'b1;
                       end
-                      if(clear_interrupt_control) begin
-                        Interrupt_Control <= 1'b0;
-                      end
+
                       if(clear_interrupt_system_enable) begin
                         Interrupt_System_Enable <= 1'b0;
                       end
@@ -2497,7 +2496,13 @@ endfunction
               end
             endcase
           end
+          if (tstate == T4) begin
+            if(clear_interrupt_control) begin
+              Interrupt_Control <= 1'b0;
+            end
+          end
           if (tstate == T7) begin
+            if (set_interrupt_control) Interrupt_Control <= 1'b1;
             dma_phase <= dma_1_cycle_request_ff | dma_2_cycle_request_ff;
             if (!dma_phase) begin
               if (interrupt & phase != PH_INTERRUPT) begin
