@@ -693,6 +693,7 @@ assign scale_clock_enable = (clk_scale == 5'd0);
   logic        is_asg_instr;
   logic        is_mem_ref;
   logic        is_jmp;
+  logic        is_jsb;
   logic        msc0, msc1,msc2,msc3,msc4,msc5,msc6,msc7,lsc0,lsc1,lsc2,lsc3,lsc4,lsc5,lsc6,lsc7;
   logic        skip_on_overflow;
   logic        sfs_intp, sfc_intp, skip_intp, skip_io, skip_dma6, skip_dma7;
@@ -706,6 +707,8 @@ assign scale_clock_enable = (clk_scale == 5'd0);
     op4 = IR[4:1];
     cz  = IR[0];
     ind = TR[15];
+    is_jmp = (op4 == 4'o5);
+    is_jsb = (op4 == 4'o3);    
     // The low address bits come from the T register.
     off10 = TR[9:0];
     normal_instruction_execution = ~(dma_phase || (phase == PH_INTERRUPT));
@@ -763,11 +766,10 @@ assign scale_clock_enable = (clk_scale == 5'd0);
     set_overflow = set_flag & msc0 & lsc1;
     clear_overflow = clear_flag & msc0 & lsc1;
     set_interrupt_control = ((phase == PH_FETCH) & ~IR[4] & ~IR[3] & ~IR[2]) | (phase == PH_INDIRECT) | (phase == PH_EXECUTE);
-    clear_interrupt_control = (((op4 == 4'o3)| (op4 == 4'o5)) & IR[5] ) | clear_control | set_control | clear_flag | set_flag | phase == PH_INTERRUPT ;
+    clear_interrupt_control =  clear_control | set_control | clear_flag | set_flag | phase == PH_INTERRUPT ;
     set_interrupt_system_enable = set_flag & msc0 & lsc0;
     clear_interrupt_system_enable = clear_flag & msc0 & lsc0;
     iak = (tstate == T1) & (phase == PH_FETCH) & ~Interrupt_Control;
-    is_jmp = (op4 == 4'o5);
     ioo = state34 & (((TR[8:6] == 3'o6) && is_io_instr) | dma_ioo);
     ioi = state45 & ((((TR[8:6] == 3'o5) | (TR[8:6] == 3'o4)) && is_io_instr) | dma_ioi);
     if (dma_phase) begin
@@ -2505,7 +2507,7 @@ endfunction
             if (set_interrupt_control) Interrupt_Control <= 1'b1;
             dma_phase <= dma_1_cycle_request_ff | dma_2_cycle_request_ff;
             if (!dma_phase) begin
-              if (interrupt & phase != PH_INTERRUPT) begin
+              if (interrupt & (~IR[5] | ~(is_jsb | is_jmp))) begin
                 phase <= PH_INTERRUPT;
               end 
               else if (((eau_mem_ref & ind) | (is_mem_ref & ind)) & (phase == PH_INDIRECT || phase == PH_FETCH)) begin
