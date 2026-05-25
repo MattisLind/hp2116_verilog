@@ -766,7 +766,7 @@ assign scale_clock_enable = (clk_scale == 5'd1);
     set_overflow = set_flag & msc0 & lsc1;
     clear_overflow = clear_flag & msc0 & lsc1;
     set_interrupt_control = ((phase == PH_FETCH) & ~IR[4] & ~IR[3] & ~IR[2]) | (phase == PH_INDIRECT) | (phase == PH_EXECUTE);
-    clear_interrupt_control =  clear_control | set_control | clear_flag | set_flag | phase == PH_INTERRUPT ;
+    clear_interrupt_control = ((is_jsb | is_jmp) & IR[5] ) | clear_control | set_control | clear_flag | set_flag | phase == PH_INTERRUPT ;
     set_interrupt_system_enable = set_flag & msc0 & lsc0;
     clear_interrupt_system_enable = clear_flag & msc0 & lsc0;
     iak = (tstate == T1) & (phase == PH_FETCH) & ~Interrupt_Control;
