@@ -766,7 +766,7 @@ assign scale_clock_enable = (clk_scale == 5'd1);
     set_overflow = set_flag & msc0 & lsc1;
     clear_overflow = clear_flag & msc0 & lsc1;
     set_interrupt_control = ((phase == PH_FETCH) & ~IR[4] & ~IR[3] & ~IR[2]) | (phase == PH_INDIRECT) | (phase == PH_EXECUTE);
-    clear_interrupt_control = ((is_jsb | is_jmp) & IR[5] ) | clear_control | set_control | clear_flag | set_flag | phase == PH_INTERRUPT ;
+    clear_interrupt_control = clear_control | set_control | clear_flag | set_flag | phase == PH_INTERRUPT ;
     set_interrupt_system_enable = set_flag & msc0 & lsc0;
     clear_interrupt_system_enable = clear_flag & msc0 & lsc0;
     iak = (tstate == T1) & (phase == PH_FETCH) & ~Interrupt_Control;
@@ -1046,7 +1046,7 @@ always_ff @(posedge clk or popio) begin
       //$display("TIME %020t Fetch is_io_instr=%d, phase=%d, tstate=%d", $time, is_io_instr, phase, tstate);  
       case (phase) 
         PH_FETCH: begin
-          mp_indirect_counter <= 2'd0;  
+           
           if (is_io_instr) begin
             if (mp_iak_ff) begin
               if (is_halt_instr) begin
@@ -1095,9 +1095,6 @@ always_ff @(posedge clk or popio) begin
           end
           
         end
-        PH_INDIRECT: begin    
-          if (tstate == T5) mp_indirect_counter <= mp_indirect_counter + 2'd1; 
-        end
         default: begin
           
         end
@@ -1112,7 +1109,6 @@ always_ff @(posedge clk or popio) begin
     else if (is_jmp & (tstate == T4)) mp_jmp_ptotect_ff <= 1'b1;
 
     if (stc & mp_sc_05) begin 
-      $display("TIME %020t Setting mp_control_ff", $time);
       mp_control_ff <= 1'b1;
     end
 
@@ -1697,6 +1693,7 @@ endfunction
               // FETCH phase
               // ---------------------------------------------------------------
               PH_FETCH: begin
+                mp_indirect_counter <= 2'd0; 
                 if (~mp_inhibit_execution) begin
                   unique case (tstate)
                     T0: begin
@@ -1996,6 +1993,10 @@ endfunction
                       TR <= B;
                     else
                       TR <= mem_rdata;
+                  end
+
+                  T5: begin
+                    mp_indirect_counter <= mp_indirect_counter + 2'd1; 
                   end
 
                   T7: begin
@@ -2673,7 +2674,10 @@ endfunction
             if (set_interrupt_control) Interrupt_Control <= 1'b1;
             dma_phase <= dma_1_cycle_request_ff | dma_2_cycle_request_ff;
             if (!dma_phase) begin
-              if (interrupt & (~IR[5] | ~(is_jsb | is_jmp))) begin
+              if (phase == PH_INTERRUPT) begin
+                phase <= PH_FETCH;
+              end 
+              else if (interrupt & ((~IR[5] | (mp_indirect_counter == 2'd3)) | ~(is_jsb | is_jmp))) begin
                 phase <= PH_INTERRUPT;
               end 
               else if (((eau_mem_ref & ind) | (is_mem_ref & ind)) & (phase == PH_INDIRECT || phase == PH_FETCH)) begin
