@@ -1055,7 +1055,7 @@ always_ff @(posedge clk or popio) begin
             end 
             else begin
               if (is_halt_instr) begin
-                if (tstate == T3) mp_violation_register <= {1'b0, M};
+                if ((tstate == T3) & ~mp_interrupt_ff) mp_violation_register <= {1'b0, M};
                 if (tstate == T2) begin 
                   mp_inhibit_execution <= 1'b1; 
                   mp_interrupt_ff <= 1'b1;
@@ -1074,10 +1074,8 @@ always_ff @(posedge clk or popio) begin
           end
           else begin
             //$display("TIME %020t Fetch is_io_instr=%d", $time, is_io_instr);
-            if (tstate == T3) begin
+            if ((tstate == T3) & ~mp_interrupt_ff) begin
               mp_violation_register <= {1'b0, M};
-
-              //$display("TIME %020t Saving M in Violation Register", $time);
             end
             if (mp_iak_ff) begin
               if (tstate == T2) mp_control_ff <= 1'b0;  
