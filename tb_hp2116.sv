@@ -420,7 +420,7 @@ task automatic stm32_read_cylinder(
             data[15:8] = disk_image[selected_drive][off + 1];
             data[7:0] =  disk_image[selected_drive][off + 0];
             //$display("Calculated offset = %08H data=%04H", off, data);
-            $display("[%015t] q%d cyl=%d head=%d sector=%d offset=%08X data= %06o", $time, selected_drive, rar_cylinder, rar_head, rar_sector, off,data);
+            //$display("[%015t] q%d cyl=%d head=%d sector=%d offset=%08X data= %06o", $time, selected_drive, rar_cylinder, rar_head, rar_sector, off,data);
             
             if (eoc_flag) begin
               $display("[%0t] STM32 READ: EOC detected ", $time);
@@ -434,7 +434,7 @@ task automatic stm32_read_cylinder(
             stm32_wait_csr_bit_set_timeout(6, 800ns, got_word);
 
             if (!got_word) begin
-                $display("[%0t] STM32 READ: timeout at C=%d H=%d S=%d W=%0d",$time, rar_cylinder, rar_head, rar_sector, word_count);
+                //$display("[%0t] STM32 READ: timeout at C=%d H=%d S=%d W=%0d",$time, rar_cylinder, rar_head, rar_sector, word_count);
                 #(3000ns)
                 stm32_wait_csr_bit_set_timeout(6, 1200ns, got_word);
                 if (got_word) begin
@@ -812,7 +812,7 @@ endfunction
         // Signal attention for the drive that was done doing seek
         stm32_fsmc_write16(STM32_REG_7900_ATTENTION, {12'h000, decode2to4(selected_drive)});
         
-        $display("[%0t] STM32: Drive %0d seek complete", $time, selected_drive);
+        //$display("[%0t] STM32: Drive %0d seek complete", $time, selected_drive);
       end
     endtask
 
@@ -882,7 +882,7 @@ endfunction
         selected_drive = indata[1:0];
         protected_cylinder_indicator = indata[9];
         defective_cylinder_indicator = indata[8];        
-        $display("[%0t] STM32: Got command %04o drive = %1d protected= %1d defective=%1d", $time, command, selected_drive, protected_cylinder_indicator, defective_cylinder_indicator);
+        //$display("[%0t] STM32: Got command %04o drive = %1d protected= %1d defective=%1d", $time, command, selected_drive, protected_cylinder_indicator, defective_cylinder_indicator);
         // Kodkommentar: Välj åtgärd beroende på kommando-koden.
         case (command)
           4'h1: begin
@@ -918,7 +918,7 @@ endfunction
           end
 
           4'h2: begin
-            $display("[%0t] STM32: Got Read Data command on drive %d", $time,selected_drive);
+            //$display("[%0t] STM32: Got Read Data command on drive %d", $time,selected_drive);
             stm32_get_seek_address();
             if (current_cylinder[selected_drive] != rar_cylinder) begin
               //$display("[%0t] STM32: address error on read", $time);
@@ -940,10 +940,10 @@ endfunction
 
           4'h3: begin
 
-            $display("[%0t] STM32: Got Seek Record command on drive %d", $time,selected_drive);
+            //$display("[%0t] STM32: Got Seek Record command on drive %d", $time,selected_drive);
             // Get two words over the data channel and store it into RAR
             stm32_get_seek_address();
-            $display("[%0t] STM32: Retrieved cylinder = %d head = %d and sector =%d", $time, rar_cylinder, rar_head, rar_sector);
+            //$display("[%0t] STM32: Retrieved cylinder = %d head = %d and sector =%d", $time, rar_cylinder, rar_head, rar_sector);
 
             if (drive_busy[selected_drive]) begin
               //$display("[%0t] STM32: Got Seek Record command - already busy", $time);
@@ -2010,15 +2010,25 @@ initial begin
     // Wait for the prompt and reply.
     // The example response here is only an example — replace it with the
     // exact response expected by the diagnostic program.
-    /*uart_expect_and_respond(
+    if (0) begin
+    uart_expect_and_respond(
         uart_tx,
         uart_rx,
         "\r\nSET TIME\r\n",
         "\r",
         4_000ns,
         20_000ns
-    );*/
-
+    );
+    uart_expect_and_respond(
+        uart_tx,
+        uart_rx,
+        "MP    \x98\xE2\x98\xE2\x98  11021\r\n\r\n*",
+        "ON,FMGR\r",
+        4_000ns,
+        20_000ns
+    );    
+    end
+    else begin
     uart_expect_and_respond(
         uart_tx,
         uart_rx,
@@ -2045,6 +2055,7 @@ initial begin
         4_000ns,
         20_000ns
     );
+    end
     /*
     uart_expect_string(
       uart_tx,

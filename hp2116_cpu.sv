@@ -2474,8 +2474,12 @@ endfunction
                   end
                   T3: begin
                     if (eau_dst) begin
-                      if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
-                      mem_we <= 1'b1;
+                      if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected) begin
+                        if (mp_control_ff & mp_mev) begin
+                          mp_interrupt_ff <= 1'b1;   
+                        end
+                          else mem_we <= 1'b1;
+                      end
                     end else if (eau_dld) begin
                       if (eau_phase == 2'd0) begin
                         A <= TR;  
@@ -2495,11 +2499,12 @@ endfunction
                         4'o02: // AND - And to A
                           A <= A & TR;
                         4'o03: //JSB - Jump to subroutine
-                          if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
+                          if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected) begin
                             if (mp_control_ff & mp_mev) begin
                               mp_interrupt_ff <= 1'b1;   
                             end
                             else mem_we <= 1'b1;
+                          end
                         4'o04: // XOR
                           A <= A ^ TR;
                         4'o05: // JMP - Jump is handled in FETCH.
@@ -2509,11 +2514,12 @@ endfunction
                         4'o06: // IOR - Inclusive OR
                           A <= A | TR;
                         4'o07:  // ISZ - Inrement memory and skip if zero
-                          if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
+                          if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected) begin
                             if (mp_control_ff & mp_mev) begin
                               mp_interrupt_ff <= 1'b1;   
                             end
                             else mem_we <= 1'b1;
+                          end
                         4'o10: // ADA - Add to A
                         begin
                           add_sum = {1'b0, A} + {1'b0, TR};
@@ -2543,17 +2549,19 @@ endfunction
                         4'o15: // LDB - Load B from memory
                           B <= TR;
                         4'o16:
-                          if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
+                          if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected) begin
                             if (mp_control_ff & mp_mev) begin
                               mp_interrupt_ff <= 1'b1;   
                             end
                             else mem_we <= 1'b1;
+                          end
                         4'o17:
-                          if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected)
+                          if ((M!= 15'o00000) && (M!= 15'o00001) && unprotected) begin
                             if (mp_control_ff & mp_mev) begin
                               mp_interrupt_ff <= 1'b1;   
                             end
                             else mem_we <= 1'b1;
+                          end
                       endcase
                     end
                   end
