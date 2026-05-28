@@ -90,10 +90,12 @@ typedef enum logic [2:0] {
   logic        command_channel_encode_ff;
   logic        irq_ff;
   logic        [1:0] drive_select_register; 
+  logic        [1:0] seek_drive_select_register;
   logic        protected_cylinder_register;
   logic        defective_cylinder_register;
   logic        first_status[0:3], overrun[0:3], drive_unsafe[0:3], data_protect[0:3], seek_check[0:3], not_ready[0:3], end_of_cylinder[0:3], address_error[0:3];
   logic        flagged_cylinder[0:3], drive_busy[0:3], data_error[0:3], any_error;
+  logic        seeking [0:3], seek_aborted [0:3];
   logic        [3:0] attention_input_register;
   logic        data_op;
   logic        drv0_sel, drv1_sel, drv2_sel, drv3_sel;
@@ -237,6 +239,7 @@ typedef enum logic [2:0] {
     stm32_fsmc_ad[9] =     stm32_read_7900_command_status ? protected_cylinder_register : 1'bz;
     stm32_fsmc_ad[8] =     stm32_read_7900_command_status ? defective_cylinder_register : 1'bz;
     stm32_fsmc_ad[1:0] =   stm32_read_7900_command_status ? drive_select_register : 2'bz;
+    stm32_fsmc_ad[5:2] =   stm32_read_7900_command_status ? {seek_aborted[3], seek_aborted[2], seek_aborted[1], seek_aborted[0]} : 4'bz;
  
     stm32_7900_data_access = stm32_data_access & (address_register == STM32_REG_7900_DATA);
     stm32_read_7900_data = stm32_7900_data_access & ~stm32_fsmc_noe;
@@ -350,12 +353,26 @@ typedef enum logic [2:0] {
         else if (command_channel_flag_buffer_ff & enf) command_channel_flag_ff <= 1'b1;
         
         // command channel control flip/flip
-        if (((clc | ioo) & csel) | crs) command_channel_control_ff <= 1'b0;
+        if (((clc | ioo) & csel) | crs) begin
+          //$display("[%0t]>>13210: CLC or IOO received ,seeking[%d]=%d", $time, drive_select_register, seeking[seek_drive_select_register]);
+          if (seeking[seek_drive_select_register]) begin
+            //$display("[%0t]>>13210: signal aborted seek.", $time);
+            seek_aborted[seek_drive_select_register] <= 1'b1;  
+          end
+          command_channel_control_ff <= 1'b0;
+        end
         else if (stc & csel) command_channel_control_ff <= 1'b1;
 
         stm32_read_csr_registered <= stm32_read_csr;
         stm32_read_csr_delayed <= stm32_read_csr_registered;
         
+        if (command_is_seek_record & stc & csel) begin
+          //$display("[%0t]>>13210: Seek command initiated drive=%d", $time, drive_select_register);
+          seeking[drive_select_register] <= 1'b1;
+          seek_aborted[drive_select_register] <= 1'b0;
+          seek_drive_select_register <= drive_select_register;
+        end
+
         // STM32 interface
 
         // The IRQ is set on the rising edge of the command channel control signal and reset by reading the status register.
@@ -442,6 +459,8 @@ typedef enum logic [2:0] {
           if (stm32_fsmc_ad[8]) drive_unsafe[stm32_fsmc_ad[15:14]] <= 1'b1;
           if (stm32_fsmc_ad[9]) overrun[stm32_fsmc_ad[15:14]] <= 1'b1;
           if (stm32_fsmc_ad[10]) first_status[stm32_fsmc_ad[15:14]] <= 1'b1; 
+          if (stm32_fsmc_ad[11]) seeking[stm32_fsmc_ad[15:14]] <= 1'b1;
+          if (stm32_fsmc_ad[12]) seek_aborted[stm32_fsmc_ad[15:14]] <= 1'b1;
         end
 
         if (stm32_7900_command_clear_status) begin
@@ -456,6 +475,8 @@ typedef enum logic [2:0] {
           if (stm32_fsmc_ad[8]) drive_unsafe[stm32_fsmc_ad[15:14]] <= 1'b0;
           if (stm32_fsmc_ad[9]) overrun[stm32_fsmc_ad[15:14]] <= 1'b0;
           if (stm32_fsmc_ad[10]) first_status[stm32_fsmc_ad[15:14]] <= 1'b0; 
+          if (stm32_fsmc_ad[11]) seeking[stm32_fsmc_ad[15:14]] <= 1'b0;
+          if (stm32_fsmc_ad[12]) seek_aborted[stm32_fsmc_ad[15:14]] <= 1'b0;
         end
 
         stm32_read_7900_data_registered <= stm32_read_7900_data;

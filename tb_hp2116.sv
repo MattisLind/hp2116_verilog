@@ -199,7 +199,8 @@ logic [6:0] word_count;
 logic eoc_flag;
 logic defective_cylinder [202:0];
 logic protected_cylinder [202:0];
-
+logic seek_active [3:0];
+logic seek_done [3:0];
 
 /*
 logic data_error;
@@ -570,17 +571,18 @@ endfunction
 
 
   //localparam logic [13:0] STATUS_DATA_ERROR       = 14'b0000000000001;
-  localparam logic [13:0] STATUS_DRIVE_BUSY       = 14'b0000000000010;
-  localparam logic [13:0] STATUS_FLAGGED_CYLINDER = 14'b0000000000100;
-  localparam logic [13:0] STATUS_ADDRESS_ERROR    = 14'b0000000001000;
-  localparam logic [13:0] STATUS_END_OF_CYLINDER  = 14'b0000000010000;
-  //localparam logic [13:0] STATUS_NOT_READY        = 14'b0000000100000;
-  localparam logic [13:0] STATUS_SEEK_CHECK       = 14'b0000001000000;
-  //localparam logic [13:0] STATUS_DATA_PROTECT     = 14'b0000010000000;
-  //localparam logic [13:0] STATUS_DRIVE_UNSAFE     = 14'b0000100000000;
-  localparam logic [13:0] STATUS_OVERRUN          = 14'b0001000000000;
-  localparam logic [13:0] STATUS_FIRST_STATUS     = 14'b0010000000000;
-
+  localparam logic [13:0] STATUS_DRIVE_BUSY       = 14'b00000000000010;
+  localparam logic [13:0] STATUS_FLAGGED_CYLINDER = 14'b00000000000100;
+  localparam logic [13:0] STATUS_ADDRESS_ERROR    = 14'b00000000001000;
+  localparam logic [13:0] STATUS_END_OF_CYLINDER  = 14'b00000000010000;
+  //localparam logic [13:0] STATUS_NOT_READY        = 14'b00000000100000;
+  localparam logic [13:0] STATUS_SEEK_CHECK       = 14'b00000001000000;
+  //localparam logic [13:0] STATUS_DATA_PROTECT     = 14'b00000010000000;
+  //localparam logic [13:0] STATUS_DRIVE_UNSAFE     = 14'b00000100000000;
+  localparam logic [13:0] STATUS_OVERRUN          = 14'b00001000000000;
+  localparam logic [13:0] STATUS_FIRST_STATUS     = 14'b00010000000000;
+  localparam logic [13:0] STATUS_SEEKING          = 14'b00100000000000;
+  // localparam logic [13:0] STATUS_SEEK_ABORTED     = 14'b01000000000000;
   // Kodkommentar: Exempelbitar. Anpassa efter din verkliga registerdefinition.
   //localparam logic [15:0] STM32_STATUS_BUSY = 16'h0001;
   //localparam logic [15:0] STM32_STATUS_DRQ  = 16'h0002;
@@ -798,21 +800,33 @@ endfunction
   input logic [4:0] seek_sector
 );
       begin
+        logic [15:0] indata;
+        logic seek_aborted [3:0];
         // Set the drive as busy before starting seek
-        drive_busy[selected_drive] = 1'b1;
-        stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_DRIVE_BUSY});
+        drive_busy[seek_drive] = 1'b1;
+        seek_active[selected_drive] = 1'b1;
+        seek_done[selected_drive] = 1'b0;
+        stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { seek_drive[1:0], STATUS_DRIVE_BUSY});
         //$display("[%0t] STM32: Drive %0d seek started C=%0d H=%0d S=%0d LBA=%0d",$time,seek_drive, seek_cylinder, seek_head, seek_sector,chs_to_lba(seek_cylinder, seek_head, seek_sector));
         
-        current_cylinder[selected_drive] = seek_cylinder;
+        current_cylinder[seek_drive] = seek_cylinder;
         #(4ms);
         // seek is done
-        drive_busy[selected_drive] = 1'b0;
-        //first_status[selected_drive] = 1'b0;
-        stm32_fsmc_write16(STM32_REG_7900_CLEAR_STATUS, { selected_drive[1:0], STATUS_DRIVE_BUSY | STATUS_FIRST_STATUS});
-        // Signal attention for the drive that was done doing seek
-        stm32_fsmc_write16(STM32_REG_7900_ATTENTION, {12'h000, decode2to4(selected_drive)});
+        seek_active[seek_drive] = 1'b0;
+        seek_done[seek_drive] = 1'b1;
+        drive_busy[seek_drive] = 1'b0;       
+        stm32_fsmc_read16(STM32_REG_7900_COMMAND_STATUS, indata);
+
+        stm32_fsmc_write16(STM32_REG_7900_CLEAR_STATUS, { seek_drive[1:0], STATUS_SEEKING | STATUS_DRIVE_BUSY | STATUS_FIRST_STATUS});
+        {seek_aborted[3], seek_aborted[2], seek_aborted[1], seek_aborted[0]} = indata [5:2];
+        //$display("[%0t] STM32: Seek worker indata=%06o seek_aborted[0]=%1d seek_aborted[1]=%1d seek_aborted[2]=%1d seek_aborted[3]=%1d, seek_aborted[seek_drive]=%1d",$time,indata, seek_aborted[0], seek_aborted[1],seek_aborted[2],seek_aborted[3], seek_aborted[seek_drive]);
+        if (~seek_aborted[seek_drive]) begin
+          //$display("[%0t] STM32: Seek worker Writing to attention register",$time);
+          // Signal attention for the drive that was done doing seek
+          stm32_fsmc_write16(STM32_REG_7900_ATTENTION, {12'h000, decode2to4(seek_drive)});
+        end
         
-        //$display("[%0t] STM32: Drive %0d seek complete", $time, selected_drive);
+        //$display("[%0t] STM32: Drive %0d seek complete", $time, seek_drive);
       end
     endtask
 
@@ -887,7 +901,11 @@ endfunction
         case (command)
           4'h1: begin
            
-            $display("[%0t] STM32: Got Write Data command on drive %d", $time,selected_drive);
+            //$display("[%0t] STM32: Got Write Data command on drive %d", $time,selected_drive);
+            if (seek_active[selected_drive]) begin
+              // Kodkommentar: RTE-II kan ha gjort CLC på seek och sedan direkt startat read/write.
+              wait (seek_done[selected_drive]);
+            end
             stm32_get_seek_address();
             if (current_cylinder[selected_drive] != rar_cylinder) begin
               //address_error = 1'b1;  // Address error
@@ -914,12 +932,16 @@ endfunction
               // Write cylinder from RAR               
               stm32_write_cylinder();
             end
-            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
+            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, {12'h000, decode2to4(selected_drive)});
           end
 
           4'h2: begin
-            //$display("[%0t] STM32: Got Read Data command on drive %d", $time,selected_drive);
+            if (seek_active[selected_drive]) begin
+              // Kodkommentar: RTE-II kan ha gjort CLC på seek och sedan direkt startat read/write.
+              wait (seek_done[selected_drive]);
+            end            
             stm32_get_seek_address();
+            //$display("[%0t] STM32: Got Read Data command on drive %d C=%d H=%d S=%d", $time,selected_drive, rar_cylinder, rar_head, rar_sector);
             if (current_cylinder[selected_drive] != rar_cylinder) begin
               //$display("[%0t] STM32: address error on read", $time);
               current_cylinder[selected_drive] = 8'o000;
@@ -934,7 +956,7 @@ endfunction
             stm32_read_cylinder();
             drive_busy[selected_drive] = 1'b0;
             stm32_fsmc_write16(STM32_REG_7900_CLEAR_STATUS, { selected_drive[1:0], STATUS_DRIVE_BUSY});
-            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
+            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, {12'h000, decode2to4(selected_drive)});
 
           end
 
@@ -972,7 +994,6 @@ endfunction
                 stm32_fsmc_write16(STM32_REG_7900_CLEAR_STATUS, { selected_drive[1:0], STATUS_SEEK_CHECK});
                 // Drive busy during seek
                 drive_busy[selected_drive] = 1'b1;
-                stm32_fsmc_write16(STM32_REG_7900_SET_STATUS, { selected_drive[1:0], STATUS_DRIVE_BUSY});
 
                 fork
                   begin
@@ -2010,23 +2031,23 @@ initial begin
     // Wait for the prompt and reply.
     // The example response here is only an example — replace it with the
     // exact response expected by the diagnostic program.
-    if (0) begin
+    if (1) begin
     uart_expect_and_respond(
         uart_tx,
         uart_rx,
         "\r\nSET TIME\r\n",
         "\r",
-        4_000ns,
-        20_000ns
+        40_000ns,
+        20_000_000ns
     );
     uart_expect_and_respond(
         uart_tx,
         uart_rx,
-        "MP    \x98\xE2\x98\xE2\x98  11021\r\n\r\n*",
+        "\r\n*",
         "ON,FMGR\r",
-        4_000ns,
-        20_000ns
-    );    
+        40_000ns,
+        20_000_000ns
+    );  
     end
     else begin
     uart_expect_and_respond(

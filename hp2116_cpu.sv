@@ -1042,7 +1042,7 @@ always_ff @(posedge clk or popio) begin
 
     mp_sir_d <= sir;
     if (tstate == T0) mp_inhibit_execution <= 1'b0; 
-    if (mp_control_ff) begin 
+    if (mp_control_ff & ~dma_phase) begin 
       //$display("TIME %020t Fetch is_io_instr=%d, phase=%d, tstate=%d", $time, is_io_instr, phase, tstate);  
       case (phase) 
         PH_FETCH: begin
@@ -1588,12 +1588,15 @@ endfunction
                   if ((dma_1_char_mode_ff & dma_1_cycle_div_ff) | ~dma_1_char_mode_ff) begin
                     if (dma_1_address_word == 15'o00000) begin
                       dma_1_storage_register <= A;
+                      //$display("[%0t]>>DMA1  data A %06o dma read", $time, A);
                     end
                     else if (dma_1_address_word == 15'o00001) begin
                       dma_1_storage_register <= B;
+                      //$display("[%0t]>>DMA1  data B %06o dma read", $time, B);
                     end
                     else begin
                       dma_1_storage_register <= mem_rdata;
+                      //$display("[%0t]>>DMA1  data %05o  %06o dma read", $time, dma_1_address_word, mem_rdata);
                     end                      
                   end
               end 
@@ -1601,12 +1604,15 @@ endfunction
                   if ((dma_2_char_mode_ff & dma_2_cycle_div_ff) | ~dma_2_char_mode_ff) begin
                     if (dma_2_address_word == 15'o00000) begin
                       dma_2_storage_register <= A;
+                      //$display("[%0t]>>DMA2  data A %06o dma read", $time, A);
                     end
                     else if (dma_2_address_word == 15'o00001) begin
                       dma_2_storage_register <= B;
+                      //$display("[%0t]>>DMA2  data B %06o dma read", $time, B);
                     end
                     else begin
                       dma_2_storage_register <= mem_rdata;
+                      //$display("[%0t] >>DMA2  data %05o  %06o dma read", $time, dma_2_address_word, mem_rdata);
                     end  
                   end
               end 
@@ -1648,27 +1654,72 @@ endfunction
                   end
               end                  
             end
+
+            /*
+TIME          30027935000  M=024141 D=000000 A=024141 B=000600 EXTEND=1 OVERFLOW=0 IE=1 035066 162606  LDA 000606,I        
+TIME          30028415000                    A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=1 035067 002002  SZA                 
+TIME          30028575000  M=041125 D=102000 A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=1 035071 115276  JSB 001276,I        
+TIME          30029055000                    A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=1 041126 102000  HLT 00  <-----            
+TIME          30029375000  M=010701 D=002201 A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=1 041125 114342  JSB 000342,I        
+TIME          30029855000                    A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=1 010702 103100  CLF 00              
+TIME          30030015000                    A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=0 010703 104400  ??? 
+
+
+>>CPU fetch: - 0016 35067  002002    instruction fetch
+>>CPU   reg: P **** 00000  000000    A 000000, B 000544, E o I
+>>CPU instr: - 0016 35067  002002  SZA
+>>CPU fetch: - 0016 35071  115276    instruction fetch
+>>CPU   reg: P **** 00000  000000    A 000000, B 000544, E o I
+>>CPU instr: - 0016 35071  115276  JSB 1276,I
+>>CPU  data: - 0000 01276  041125    data read
+>>CPU  data: - 0020 41125  035072    data write
+>>CPU fetch: - 0020 41126  114107    instruction fetch
+>>CPU   reg: P **** 00000  000000    A 000000, B 000544, E o I
+>>CPU instr: - 0020 41126  114107  JSB 107,I
+>>CPU  data: - 0000 00107  002200    data read
+>>MP  iobus: Received data 000000 with signals ENF | SIR | IEN | PRH
+>>MP  iobus: Returned data 000000 with signals FLG | IRQ
+>>CPU instr: - 0020 41127  000005  interrupt
+>>MP  iobus: Received data 000000 with signals IAK | SIR | IEN | PRH
+>>MP  iobus: Returned data 000000 with signals PRL
+>>CPU fetch: - 0000 00005  114342    instruction fetch
+>>CPU   reg: - **** 00000  000000    A 000000, B 000544, E o I
+>>CPU   reg: - **** *****  ******    MPF 030000, MPV 041126
+>>CPU instr: - 0000 00005  114342  JSB 342,I
+>>CPU  data: - 0000 00342  010701    data read
+>>CPU  data: - 0004 10701  041127    data write
+>>CPU fetch: - 0004 10702  103100    instruction fetch
+
+>>DMA1  data: - 0020 41126  114107    dma write
+
+            */
             if (tstate == T5) begin
               if (dma_1_direction_ff & dma_1_cycle_request_ff & ((dma_1_char_mode_ff & ~dma_1_cycle_div_ff) | ~dma_1_char_mode_ff)) begin  // write on word transfers or when even cycle
                 if (dma_1_address_word == 15'o00000) begin
                   A <= dma_1_storage_register;
+                  //$display("[%0t]>>DMA1  data A %06o dma write", $time, dma_1_storage_register);
                 end
                 else if (dma_1_address_word == 15'o00001) begin
                   B <= dma_1_storage_register;
+                  //$display("[%0t]>>DMA1  data B %06o dma write", $time, dma_1_storage_register);
                 end
                 else begin
                   mem_we <= 1'b1;
+                  //$display("[%0t]>>DMA1  data %05o %06o dma write", $time, dma_1_address_word, dma_1_storage_register);
                 end
               end
               if (dma_2_direction_ff &  & dma_2_cycle_request_ff & ((dma_2_char_mode_ff & ~dma_2_cycle_div_ff) | ~dma_2_char_mode_ff)) begin  // write on word transfers or when even cycle
                 if (dma_2_address_word == 15'o00000) begin
                   A <= dma_2_storage_register;
+                  //$display("[%0t]>>DMA2  data A %06o dma write", $time, dma_2_storage_register);
                 end
                 else if (dma_2_address_word == 15'o00001) begin
                   B <= dma_2_storage_register;
+                  //$display("[%0t]>>DMA2  data B %06o dma write", $time, dma_2_storage_register);
                 end
                 else begin
                   mem_we <= 1'b1;
+                  //$display("[%0t]>>DMA2  data %05o %06o dma write", $time, dma_2_address_word, dma_2_storage_register);
                 end
               end                
             end  
