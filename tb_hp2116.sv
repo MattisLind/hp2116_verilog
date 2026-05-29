@@ -57,7 +57,7 @@ module tb_hp2116;
 
   // Default paper tape file. Can be overridden with +PTR_FILE=...
   string ptr_filename;
-  string DSN;
+  string DSN, RTE;
   string pretest, loadfile;
   string trace;
 
@@ -2060,6 +2060,9 @@ end*/
 
 
 initial begin
+    if (!$value$plusargs("RTE=%s", RTE))
+      RTE = "NO";
+    
     if (!$value$plusargs("DSN=%s", DSN))
       DSN = "101100";
     // Wait until reset is released.
@@ -2077,7 +2080,7 @@ initial begin
     // Wait for the prompt and reply.
     // The example response here is only an example — replace it with the
     // exact response expected by the diagnostic program.
-    if (1) begin
+    if (RTE=="YES") begin
     uart_expect_and_respond(
         uart_tx,
         uart_rx,

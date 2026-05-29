@@ -10,5 +10,5 @@ docker run --rm -it \
       --sv --timing --binary --trace-fst\
       tb_hp2116.sv hp2116_cpu.sv hp12531c.sv hp12597a.sv hp12566b.sv hp13210a.sv hp12539c.sv hp12845a.sv \
       --top-module tb_hp2116 && \
-    ./obj_dir/Vtb_hp2116 "+PTR_FILE=$1" "+DSN=$2" "+PRETEST=$3" "+TRACE=$4" "+LOADFILE=$5" "+DISK0=$6"
-  ' bash "$1" "$2" "$3" "$4" "$5" "$6"
+    ./obj_dir/Vtb_hp2116 "+PTR_FILE=$1" "+DSN=$2" "+PRETEST=$3" "+TRACE=$4" "+LOADFILE=$5" "+DISK0=$6" "+RTE=$7"
+  ' bash "$1" "$2" "$3" "$4" "$5" "$6" "$7"
