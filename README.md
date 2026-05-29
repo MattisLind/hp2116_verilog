@@ -16,8 +16,15 @@ build_all.sh can be run with tracing if you specify the first argument as ON.
 
 ```build_all.sh ON```
 
+I have added suppport for 13210 disk controller and 7900 disk, 12539A Time Base Generator, 12531A TTY interface, 12845A Lineprinter interface, 12566A Microcircuit interface, 12597A paper tape reader and paper tape punch, 12579A EAU, 12578A DMA, 12581A Memory Protect.
 
-The next step would be to implement DMA support and then the 13210A disk controller for the 7900 disk drives.
+The simulator now boots RTE-II and is able to start the FMGR tool and do DL command do list files on the disk.
+
+```run_rte.sh```
+
+can be used for this.
+
+![Booting RTE](Booting%20RTE-II.png)
 
 I use GTKwave for debugging and analysing the system. I added python tools that allow to get the mnememonic into the display. This tool is `hp21xx_gtkwave_filter.py` and when in gtkwave it is possible to select a signal and then right press on it and select "Data format". From the foldout menu I then select "Translate filter process" -> "Enable and select". Here I can the select the above mentioned python-script and enable it
 
