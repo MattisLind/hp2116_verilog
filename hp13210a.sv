@@ -346,7 +346,7 @@ typedef enum logic [2:0] {
          
         // command channel flag buffer flip/flop
         if ((clf & csel) |  (iak & irq_ff)) command_channel_flag_buffer_ff <= 1'b0;
-        else if ((stf & csel) | (~command_channel_flag_ff & stm32_write_7900_attention_negedge)) command_channel_flag_buffer_ff <= 1'b1;
+        else if ((stf & csel) | (~command_channel_flag_ff & stm32_write_7900_attention_negedge) | set_irq_ff) command_channel_flag_buffer_ff <= 1'b1;
 
         // command channel flag flip/flop
         if (clf & csel) command_channel_flag_ff <= 1'b0;
@@ -379,7 +379,7 @@ typedef enum logic [2:0] {
         command_channel_control_ff_delayed <= command_channel_control_ff;
 
         if (stm32_read_csr_negedge) stm32_irq_ff <= 1'b0;
-        else if (command_is_seek_record_or_address_record & set_irq_ff) stm32_irq_ff <= 1'b1;
+        else if (command_is_seek_record & set_irq_ff) stm32_irq_ff <= 1'b1;
         else if ((command_is_write_data | command_is_read_data | command_is_refine_sector | command_is_check_data | command_is_initalize_data) & command_channel_control_ff_posedge) stm32_irq_ff <= 1'b1;
 
         if (stm32_read_7900_data_negedge | stm32_write_7900_data_negedge) stm32_data_channel_irq_ff <= 1'b0;

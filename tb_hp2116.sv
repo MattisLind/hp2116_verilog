@@ -1069,9 +1069,9 @@ endfunction
           end          
 
           4'hb: begin
-            stm32_get_seek_address();      
+            //stm32_get_seek_address();      
             //$display("[%0t] STM32: Got Address Record command on drive %d c=%d h=%d s=%d", $time,selected_drive, rar_cylinder, rar_head, rar_sector);
-            stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
+            //stm32_fsmc_write16(STM32_REG_7900_ATTENTION, 16'h0000);
           end
 
           default: begin
@@ -1193,28 +1193,39 @@ endfunction
     end
   endtask
 
-  initial begin : uart_tx_monitor
+string line = "";
+
+initial begin : uart_tx_monitor
     logic [7:0] ch;
 
+    logic [6:0] ascii;
     forever begin
-      uart_recv_byte(uart_tx, ch);
+        uart_recv_byte(uart_tx, ch);
+        ascii = ch[6:0];
+        if (ascii == 7'h0d) begin
+            // Kodkommentar: HP skickar CR före LF. Ignorera CR.
+        end
+        else if (ascii == 7'h0a) begin
+            // Kodkommentar: LF avslutar raden, skriv ut hela raden.
+            $display("[%0t] UART RX: %s", $time, line);
+            line = "";
+        end
+        else begin
+            // Kodkommentar: Lägg till vanligt tecken i radbufferten.
+            line = {line, byte'({1'b0, ascii})};
+        end
 
-      $display("UART RX byte: 0x%02h (%s) at time %0t",
-               ch,
-               (ch >= 8'h20 && ch <= 8'h7e) ? {byte'(ch)} : ".",
-               $time);
-
-      if (tty_capture_enable && (tty_punch_fd != 0)) begin
-          // Kodkommentar: Hoppa över de första 40 tecknen (leader).
-          if (tty_skip_count < 40) begin
-              tty_skip_count++;
-          end
-          else begin
-              $fwrite(tty_punch_fd, "%c", ch);
-          end
-      end
+        if (tty_capture_enable && (tty_punch_fd != 0)) begin
+            // Kodkommentar: Hoppa över de första 40 tecknen (leader).
+            if (tty_skip_count < 40) begin
+                tty_skip_count++;
+            end
+            else begin
+                $fwrite(tty_punch_fd, "%c", ch);
+            end
+        end
     end
-  end
+end
 
 
   // Kodkommentar: Läs tillbaka den fångade "pappersremsan" via UART till DUT.
@@ -1349,11 +1360,11 @@ end
 
         ch = c[7:0];
 
-        $display("UART RX on-demand byte: 0x%02h (%s) at time %0t",
+        /*$display("UART RX on-demand byte: 0x%02h (%s) at time %0t",
                  ch,
                  (ch >= 8'h20 && ch <= 8'h7e) ? {byte'(ch)} : ".",
                  $time);
-
+*/
         uart_send_byte(ch, uart_rx);
 
         // Kodkommentar: Vänta ut den aktuella read-begäran innan nästa byte.
@@ -1986,6 +1997,10 @@ task automatic uart_send_string(
     begin
         for (i = 0; i < text.len(); i++) begin
             ch = text[i][7:0];
+            /*$display("UART RX on-demand byte: 0x%02h (%s) at time %0t",
+            ch,
+            (ch >= 8'h20 && ch <= 8'h7e) ? {byte'(ch)} : ".",
+            $time);*/
             uart_send_byte( ch, serial_line);
 
             // Extra pause between characters if desired.
@@ -2012,6 +2027,37 @@ task automatic uart_expect_and_respond(
         uart_send_string(tb_rx, response, inter_char_delay);
     end
 endtask
+
+/*
+initial begin : timed_uart_input
+  bit sent_1;
+  bit sent_2;
+
+  sent_1 = 1'b0;
+  sent_2 = 1'b0;
+
+  forever begin
+    @(posedge clk);
+
+    // Kodkommentar: Skicka input ungefär vid denna simulationstid, men bara en gång.
+    if (!sent_1 && ($time >= 50_000_000ns)) begin
+      sent_1 = 1'b1;
+      $display("[%0t] Sending timed UART input 1", $time);
+      uart_send_string(uart_tx, "\r", 40_000ns);
+    end
+
+    // Kodkommentar: Nästa tidsstyrda input.
+    if (!sent_2 && ($time >= 150_000_000ns)) begin
+      sent_2 = 1'b1;
+      $display("[%0t] Sending timed UART input 2", $time);
+      uart_send_string(uart_tx, "ON,FMGR\r", 40_000ns);
+    end
+  end
+end*/
+
+
+
+
 
 initial begin
     if (!$value$plusargs("DSN=%s", DSN))
@@ -2046,8 +2092,16 @@ initial begin
         "\r\n*",
         "ON,FMGR\r",
         40_000ns,
-        20_000_000ns
+        100_000_000ns
     );  
+    uart_expect_and_respond(
+        uart_tx,
+        uart_rx,
+        "\x8a:",
+        "DL\r",
+        40_000ns,
+        100_000_000ns
+    );     
     end
     else begin
     uart_expect_and_respond(

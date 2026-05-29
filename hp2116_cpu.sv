@@ -1655,44 +1655,6 @@ endfunction
               end                  
             end
 
-            /*
-TIME          30027935000  M=024141 D=000000 A=024141 B=000600 EXTEND=1 OVERFLOW=0 IE=1 035066 162606  LDA 000606,I        
-TIME          30028415000                    A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=1 035067 002002  SZA                 
-TIME          30028575000  M=041125 D=102000 A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=1 035071 115276  JSB 001276,I        
-TIME          30029055000                    A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=1 041126 102000  HLT 00  <-----            
-TIME          30029375000  M=010701 D=002201 A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=1 041125 114342  JSB 000342,I        
-TIME          30029855000                    A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=1 010702 103100  CLF 00              
-TIME          30030015000                    A=000000 B=000600 EXTEND=1 OVERFLOW=0 IE=0 010703 104400  ??? 
-
-
->>CPU fetch: - 0016 35067  002002    instruction fetch
->>CPU   reg: P **** 00000  000000    A 000000, B 000544, E o I
->>CPU instr: - 0016 35067  002002  SZA
->>CPU fetch: - 0016 35071  115276    instruction fetch
->>CPU   reg: P **** 00000  000000    A 000000, B 000544, E o I
->>CPU instr: - 0016 35071  115276  JSB 1276,I
->>CPU  data: - 0000 01276  041125    data read
->>CPU  data: - 0020 41125  035072    data write
->>CPU fetch: - 0020 41126  114107    instruction fetch
->>CPU   reg: P **** 00000  000000    A 000000, B 000544, E o I
->>CPU instr: - 0020 41126  114107  JSB 107,I
->>CPU  data: - 0000 00107  002200    data read
->>MP  iobus: Received data 000000 with signals ENF | SIR | IEN | PRH
->>MP  iobus: Returned data 000000 with signals FLG | IRQ
->>CPU instr: - 0020 41127  000005  interrupt
->>MP  iobus: Received data 000000 with signals IAK | SIR | IEN | PRH
->>MP  iobus: Returned data 000000 with signals PRL
->>CPU fetch: - 0000 00005  114342    instruction fetch
->>CPU   reg: - **** 00000  000000    A 000000, B 000544, E o I
->>CPU   reg: - **** *****  ******    MPF 030000, MPV 041126
->>CPU instr: - 0000 00005  114342  JSB 342,I
->>CPU  data: - 0000 00342  010701    data read
->>CPU  data: - 0004 10701  041127    data write
->>CPU fetch: - 0004 10702  103100    instruction fetch
-
->>DMA1  data: - 0020 41126  114107    dma write
-
-            */
             if (tstate == T5) begin
               if (dma_1_direction_ff & dma_1_cycle_request_ff & ((dma_1_char_mode_ff & ~dma_1_cycle_div_ff) | ~dma_1_char_mode_ff)) begin  // write on word transfers or when even cycle
                 if (dma_1_address_word == 15'o00000) begin
@@ -2665,6 +2627,11 @@ TIME          30030015000                    A=000000 B=000600 EXTEND=1 OVERFLOW
               // ---------------------------------------------------------------
               PH_INTERRUPT: begin
                 if (tstate == T7) begin
+                  // Reset the EAE instructions since we got an interrupt. Retry it later.
+                  eau_mpy <= 1'b0; 
+                  eau_div <= 1'b0;
+                  eau_dld <= 1'b0;
+                  eau_dst <= 1'b0;
                   //phase <= PH_FETCH;
                   P <= P - 15'o00001;
                   if (mp_irq) begin
